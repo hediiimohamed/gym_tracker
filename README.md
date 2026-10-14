@@ -2,7 +2,7 @@
 
 A workout tracker for a **Push / Pull / Legs** program: a single-file frontend backed by a small Node.js server, so your data lives in a real database instead of being trapped in one browser. Open it on your phone and log your sets.
 
-> **Status**: the data layer (this README) is in place. An AI coaching chat and meal-photo logging are planned next — see [Roadmap](#roadmap).
+> **Status**: the data layer and training analytics are in place. An AI coaching chat and meal-photo logging are planned next — see [Roadmap](#roadmap).
 
 <p align="center">
   <img src="docs/screenshots/home.png" width="220" alt="Dashboard view">
@@ -17,7 +17,7 @@ A workout tracker for a **Push / Pull / Legs** program: a single-file frontend b
 - **Rest timer** — 90s / 3min one-tap timers built into the logging bar.
 - **Back-health check-in** — quick tap per session (fine / slight discomfort / pain), with an automatic warning if pain is reported.
 - **Journal** — full session history with volume per session, per-exercise breakdown, and one-tap delete (with confirmation).
-- **Suivi (tracking)** — fasted body weight with a 7-day / 28-day trend, body measurements, and a shoulder-to-waist ratio.
+- **Suivi (tracking)** — fasted body weight with a 7-day / 28-day trend, training volume per session (color-coded by Push/Pull/Legs), per-exercise progress charts (pick any exercise, see its best weight over time), body measurements, and a shoulder-to-waist ratio.
 - **Synced storage** — data is saved to a real database (via a small backend) so it survives across devices and isn't lost if you clear your browser. Export to JSON any time as a manual backup, import to restore. A guarded "erase everything" option lives in Données. If the server is briefly unreachable, it falls back to the browser's local storage so you never lose a set mid-workout.
 - **Installable** — includes a web app manifest and icons, so it can be added to your phone's home screen and used like a native app.
 - **Access code** — a single shared secret (set by whoever deploys it) gates read/write access, since the backend is reachable over the internet.
@@ -102,7 +102,7 @@ Your data lives in your own Turso database, reachable only with your `APP_TOKEN`
 Planned next, in order:
 
 1. ~~Backend + real database~~ (done)
-2. More analytics and charts on existing session/weight data
+2. ~~More analytics and charts on existing session/weight data~~ (done)
 3. An AI coaching chat (Claude) that can see your logged sets and answer questions about your training
 4. Meal photo logging — snap a photo, get a nutrition estimate
 

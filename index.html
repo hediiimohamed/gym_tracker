@@ -21,7 +21,7 @@
     --bg:#0b0e13; --surface:#141922; --surface2:#1b212c; --surface3:#242c39; --border:#2a3342;
     --text:#eef1f5; --dim:#8b95a5; --faint:#5c6674;
     --accent:#34e0a1; --accent-ink:#04241a; --accent-soft:rgba(52,224,161,.12);
-    --gold:#ffcf5c; --danger:#ff5d6c; --danger-soft:rgba(255,93,108,.12);
+    --gold:#ffcf5c; --danger:#ff5d6c; --danger-soft:rgba(255,93,108,.12); --violet:#9d7bff;
     --mono: ui-monospace,"SF Mono","Roboto Mono",Menlo,monospace;
     --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
@@ -106,6 +106,18 @@
   .spark circle { fill: var(--accent); }
   .spark-foot { display: flex; justify-content: space-between; margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
   .spark-foot .hi { color: var(--accent); }
+
+  .barchart { width: 100%; height: 64px; display: block; }
+  .chart-legend { display: flex; gap: 14px; margin-top: 11px; font-family: var(--mono); font-size: 10px;
+    color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+  .chart-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .ex-pick {
+    width: 100%; padding: 13px 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-size: 14px; font-weight: 600; margin-bottom: 11px;
+    font-family: var(--sans); appearance: none; outline: none;
+  }
+  .ex-pick:focus { border-color: var(--accent); }
 
   /* ---- alerte reprise ---- */
   .phase {
@@ -367,6 +379,7 @@ const ICONS = {
 
 let state = { sessions: [], weights: [], measures: [] };
 let tab   = "home";
+let analyticsEx = null;
 let draft = { sets: {}, back: 0, note: "" };
 let timer = { left: 0, on: false, iv: null };
 
@@ -489,6 +502,45 @@ function sparkline(values) {
     <polyline points="${pts.join(" ")}"></polyline>
     <circle cx="${last[0]}" cy="${last[1]}" r="1.8"></circle>
   </svg>`;
+}
+function progressChart(values) {
+  const n = values.length;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = (max - min) || 1;
+  const pts = values.map((v, i) => {
+    const x = n > 1 ? (i / (n - 1)) * 100 : 50;
+    const y = 38 - ((v - min) / range) * 32;
+    return [x, y];
+  });
+  const line = pts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  const dots = pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="1.6"></circle>`).join("");
+  return `<svg class="spark" viewBox="0 0 100 40" preserveAspectRatio="none">
+    <polyline points="${line}"></polyline>${dots}
+  </svg>`;
+}
+function barChart(items) {
+  const max = Math.max(...items.map(i => i.v), 1);
+  const n = items.length, gap = 1.2;
+  const bw = (100 - gap * (n - 1)) / n;
+  const bars = items.map((it, i) => {
+    const x = i * (bw + gap);
+    const bh = Math.max((it.v / max) * 58, 1);
+    const y = 64 - bh;
+    return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${bw.toFixed(2)}" height="${bh.toFixed(2)}" rx="1.5" fill="${it.color}"></rect>`;
+  }).join("");
+  return `<svg class="barchart" viewBox="0 0 100 64" preserveAspectRatio="none">${bars}</svg>`;
+}
+const SPLIT_COLOR = { push: "var(--accent)", pull: "var(--gold)", legs: "var(--violet)" };
+function sessionVolumes() {
+  return [...state.sessions]
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .map(s => ({ date: s.date, type: s.type, vol: Object.values(s.ex).flat().reduce((a, x) => a + x.kg * x.reps, 0) }));
+}
+function exerciseSeries(id) {
+  return state.sessions
+    .filter(s => s.ex[id] && s.ex[id].length)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .map(s => ({ date: s.date, kg: s.ex[id].reduce((m, x) => x.kg > m ? x.kg : m, 0) }));
 }
 function toast(msg) {
   const o = document.querySelector(".toast"); if (o) o.remove();
@@ -679,6 +731,45 @@ function viewSuivi() {
     h += `<p class="hint">Chaque matin, à jeun, après être passé aux toilettes, avant de boire. C'est la moyenne sur 7 jours qu'on lit, jamais le chiffre du jour.</p>`;
   }
 
+  h += `<h2 class="sec">Volume d'entraînement</h2>`;
+  const vols = sessionVolumes();
+  if (vols.length) {
+    const recentVols = vols.slice(-15);
+    h += `<div class="card">${barChart(recentVols.map(v => ({ v: v.vol, color: SPLIT_COLOR[v.type] || "var(--dim)" })))}
+      <div class="chart-legend">
+        <span><i style="background:var(--accent)"></i>Push</span>
+        <span><i style="background:var(--gold)"></i>Pull</span>
+        <span><i style="background:var(--violet)"></i>Legs</span>
+      </div>
+    </div>`;
+    const totalVol = vols.reduce((a, v) => a + v.vol, 0);
+    h += `<div class="stat"><span class="k">Volume moyen / séance</span><span class="v">${Math.round(totalVol / vols.length).toLocaleString("fr-FR")} kg</span></div>`;
+    h += `<div class="stat"><span class="k">Volume total soulevé</span><span class="v hi">${Math.round(totalVol).toLocaleString("fr-FR")} kg</span></div>`;
+  } else {
+    h += `<p class="hint">Le volume (charge × répétitions cumulées par séance) apparaîtra ici dès ta première séance enregistrée.</p>`;
+  }
+
+  h += `<h2 class="sec">Progression par exercice</h2>`;
+  const exWithData = allEx().filter(e => exerciseSeries(e.id).length >= 1);
+  if (exWithData.length) {
+    if (!analyticsEx || !exWithData.some(e => e.id === analyticsEx)) analyticsEx = exWithData[0].id;
+    h += `<select id="exPick" class="ex-pick" aria-label="Choisir un exercice">` +
+      exWithData.map(e => `<option value="${e.id}" ${e.id === analyticsEx ? "selected" : ""}>${esc(e.n)}</option>`).join("") +
+      `</select>`;
+    const series = exerciseSeries(analyticsEx);
+    if (series.length >= 2) {
+      h += `<div class="card">${progressChart(series.map(s => s.kg))}
+        <div class="spark-foot"><span>${series[0].kg} kg</span><span class="hi">${series[series.length-1].kg} kg</span></div>
+      </div>`;
+      const delta = series[series.length - 1].kg - series[0].kg;
+      h += `<div class="stat"><span class="k">Évolution</span><span class="v${delta >= 0 ? " hi" : ""}">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg<small>depuis la 1<sup>re</sup> séance</small></span></div>`;
+    } else {
+      h += `<p class="hint">Une seule séance avec cet exercice pour l'instant — reviens après la prochaine pour voir la tendance.</p>`;
+    }
+  } else {
+    h += `<p class="hint">Enregistre au moins une séance pour voir la progression par exercice ici.</p>`;
+  }
+
   h += `<h2 class="sec">Mesures — le dimanche</h2>`;
   h += `<div class="entry" style="flex-wrap:wrap">` +
     MEASURES.map(m => `<input inputmode="decimal" data-m="${m.id}" placeholder="${m.n}" aria-label="${m.n} en cm" style="flex:1 1 44%">`).join("") +
@@ -815,6 +906,7 @@ document.addEventListener("click", async e => {
 });
 
 document.addEventListener("change", async e => {
+  if (e.target.id === "exPick") { analyticsEx = e.target.value; render(); return; }
   if (e.target.id !== "fileIn" || !e.target.files.length) return;
   try {
     const d = JSON.parse(await e.target.files[0].text());
