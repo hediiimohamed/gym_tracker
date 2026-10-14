@@ -9,19 +9,19 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Carnet">
-<meta name="theme-color" content="#0b0e13">
+<meta name="theme-color" content="#0a0c10">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; background: #0b0e13; }
+  html, body { margin: 0; background: #0a0c10; }
 
   :root {
-    --bg:#0b0e13; --surface:#141922; --surface2:#1b212c; --surface3:#242c39; --border:#2a3342;
-    --text:#eef1f5; --dim:#8b95a5; --faint:#5c6674;
-    --accent:#34e0a1; --accent-ink:#04241a; --accent-soft:rgba(52,224,161,.12);
-    --gold:#ffcf5c; --danger:#ff5d6c; --danger-soft:rgba(255,93,108,.12); --violet:#9d7bff;
+    --bg:#0a0c10; --surface:#13161c; --surface2:#191d26; --surface3:#222733; --border:#262c38;
+    --text:#edeff3; --dim:#8a93a4; --faint:#586072;
+    --accent:#4f7fff; --accent-ink:#071029; --accent-soft:rgba(79,127,255,.14);
+    --gold:#f0b429; --danger:#f2555f; --danger-soft:rgba(242,85,95,.12); --violet:#a97bff;
     --mono: ui-monospace,"SF Mono","Roboto Mono",Menlo,monospace;
     --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
@@ -36,6 +36,10 @@
   button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
   input, textarea { font-family: var(--mono); }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  .card, .ex, .check, .hero, .quickcard, .stat, .sheet {
+    box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 4px 14px -6px rgba(0,0,0,.4);
+  }
 
   /* ---- entête ---- */
   header {
