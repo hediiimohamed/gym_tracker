@@ -603,6 +603,19 @@ function exerciseSeries(id) {
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .map(s => ({ date: s.date, kg: s.ex[id].reduce((m, x) => x.kg > m ? x.kg : m, 0) }));
 }
+function weekOf(dateStr) {
+  const d = Math.floor((new Date(dateStr) - new Date(CYCLE.start + "T00:00:00")) / 864e5);
+  return Math.max(1, Math.floor(d / 7) + 1);
+}
+function weeklyVolumeByType(type) {
+  const map = new Map();
+  state.sessions.filter(s => s.type === type).forEach(s => {
+    const wk = weekOf(s.date);
+    const vol = Object.values(s.ex).flat().reduce((a, x) => a + x.kg * x.reps, 0);
+    map.set(wk, (map.get(wk) || 0) + vol);
+  });
+  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([wk, vol]) => ({ wk, vol }));
+}
 function toast(msg) {
   const o = document.querySelector(".toast"); if (o) o.remove();
   const el = document.createElement("div");
@@ -686,6 +699,20 @@ function viewDay(key) {
     h += `<div class="phase"><div><b>Phase de reprise — semaines 1 à ${CYCLE.rampWeeks}.</b>
       Charges à 50-60 % de tes anciennes, RIR 3-4, aucune série à l'échec.
       Douleur qui irradie dans la jambe, engourdissement ou perte de force : tu arrêtes la séance et tu consultes.</div></div>`;
+  }
+
+  const wv = weeklyVolumeByType(key);
+  if (wv.length >= 2) {
+    const cur = wv[wv.length - 1], prev = wv[wv.length - 2];
+    const diff = cur.vol - prev.vol;
+    const pct = prev.vol ? Math.round(diff / prev.vol * 100) : 0;
+    h += `<div class="card">
+      <div class="ex-sub" style="margin-bottom:9px">Volume ${day.label} par semaine</div>
+      ${barChart(wv.slice(-6).map(w => ({ v: w.vol, color: SPLIT_COLOR[key] || "var(--accent)" })))}
+      <div class="stat" style="margin-top:11px;margin-bottom:0"><span class="k">Vs semaine dernière</span><span class="v${diff >= 0 ? " hi" : ""}">${diff >= 0 ? "+" : ""}${Math.round(diff).toLocaleString("fr-FR")} kg<small>${diff >= 0 ? "+" : ""}${pct}%</small></span></div>
+    </div>`;
+  } else if (wv.length === 1) {
+    h += `<p class="hint">Encore une seule semaine de ${day.label} enregistrée — la comparaison semaine après semaine apparaîtra ici dès la prochaine.</p>`;
   }
 
   day.ex.forEach(ex => {
