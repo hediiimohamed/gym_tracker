@@ -2,7 +2,8 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getState, setState } from "./db.js";
+import { getState, setState, listChatMessages, addChatMessage, clearChatMessages } from "./db.js";
+import { buildContext, askCoach } from "./coach.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -39,6 +40,48 @@ app.put("/api/state", requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "failed to save state" });
+  }
+});
+
+app.get("/api/chat", requireAuth, async (req, res) => {
+  try {
+    const messages = await listChatMessages();
+    res.json({ messages });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "failed to load chat" });
+  }
+});
+
+app.post("/api/chat", requireAuth, async (req, res) => {
+  try {
+    const userText = ((req.body && req.body.message) || "").trim();
+    if (!userText) return res.status(400).json({ error: "message required" });
+
+    await addChatMessage("user", userText);
+    const history = (await listChatMessages()).map(m => ({ role: m.role, content: m.content }));
+
+    const rawState = await getState();
+    const state = rawState ? JSON.parse(rawState) : { sessions: [], weights: [], measures: [] };
+    const context = buildContext(state);
+
+    const reply = await askCoach(history, context);
+    await addChatMessage("assistant", reply);
+
+    res.json({ reply });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "coach unavailable" });
+  }
+});
+
+app.delete("/api/chat", requireAuth, async (req, res) => {
+  try {
+    await clearChatMessages();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "failed to clear chat" });
   }
 });
 

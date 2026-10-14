@@ -19,6 +19,15 @@ await db.execute(`
   )
 `);
 
+await db.execute(`
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
 export async function getState() {
   const r = await db.execute("SELECT data FROM app_state WHERE id = 1");
   return r.rows.length ? r.rows[0].data : null;
@@ -30,4 +39,23 @@ export async function setState(json) {
           ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
     args: [json, new Date().toISOString()],
   });
+}
+
+export async function listChatMessages(limit = 40) {
+  const r = await db.execute({
+    sql: "SELECT role, content, created_at FROM chat_messages ORDER BY id DESC LIMIT ?",
+    args: [limit],
+  });
+  return r.rows.reverse().map(row => ({ role: row.role, content: row.content, date: row.created_at }));
+}
+
+export async function addChatMessage(role, content) {
+  await db.execute({
+    sql: "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+    args: [role, content, new Date().toISOString()],
+  });
+}
+
+export async function clearChatMessages() {
+  await db.execute("DELETE FROM chat_messages");
 }
