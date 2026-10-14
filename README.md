@@ -1,6 +1,8 @@
 # 🏋️ Carnet — Gym Tracker
 
-A minimal, offline-first workout tracker for a **Push / Pull / Legs** program — built as a single self-contained HTML file. No backend, no build step, no account. Open it and log your sets.
+A workout tracker for a **Push / Pull / Legs** program: a single-file frontend backed by a small Node.js server, so your data lives in a real database instead of being trapped in one browser. Open it on your phone and log your sets.
+
+> **Status**: the data layer (this README) is in place. An AI coaching chat and meal-photo logging are planned next — see [Roadmap](#roadmap).
 
 <p align="center">
   <img src="docs/screenshots/home.png" width="220" alt="Dashboard view">
@@ -16,21 +18,37 @@ A minimal, offline-first workout tracker for a **Push / Pull / Legs** program �
 - **Back-health check-in** — quick tap per session (fine / slight discomfort / pain), with an automatic warning if pain is reported.
 - **Journal** — full session history with volume per session, per-exercise breakdown, and one-tap delete (with confirmation).
 - **Suivi (tracking)** — fasted body weight with a 7-day / 28-day trend, body measurements, and a shoulder-to-waist ratio.
-- **Data ownership** — everything is stored locally in your browser (`localStorage`). Export to JSON any time, import to restore or move to another device. A guarded "erase everything" option lives in Settings.
-- **Installable** — includes a web app manifest and icons, so it can be added to your phone's home screen and used like a native app, fully offline.
+- **Synced storage** — data is saved to a real database (via a small backend) so it survives across devices and isn't lost if you clear your browser. Export to JSON any time as a manual backup, import to restore. A guarded "erase everything" option lives in Données. If the server is briefly unreachable, it falls back to the browser's local storage so you never lose a set mid-workout.
+- **Installable** — includes a web app manifest and icons, so it can be added to your phone's home screen and used like a native app.
+- **Access code** — a single shared secret (set by whoever deploys it) gates read/write access, since the backend is reachable over the internet.
+
+## Architecture
+
+```
+Browser (index.html)  <-->  Node/Express server  <-->  Turso (hosted SQLite)
+```
+
+The frontend is still one static HTML file (markup, styles, and UI logic). The `server/` folder is a small Express app that serves that file **and** exposes two endpoints — `GET/PUT /api/state` — backed by [Turso](https://turso.tech) (a free hosted SQLite). Every request must carry the access code as a bearer token; without it, the API returns 401.
 
 ## Getting started
 
-This is a static site — there is nothing to install or build.
-
-- **Locally**: clone the repo and open [index.html](index.html) in a browser.
-- **On your phone**: host it (e.g. GitHub Pages) and open the link once, then "Add to Home Screen" — it will work offline from then on.
+### Run it locally
 
 ```bash
 git clone https://github.com/hediiimohamed/gym_tracker.git
-cd gym_tracker
-python3 -m http.server 8000   # or just open index.html directly
+cd gym_tracker/server
+cp .env.example .env   # fill in TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, APP_TOKEN
+npm install
+npm start              # serves the app + API on http://localhost:3000
 ```
+
+### Deploy it for real (free)
+
+1. **Database** — create a free database at [turso.tech](https://turso.tech), then grab its URL and auth token from the "Connect" panel.
+2. **Server** — push this repo to GitHub, then create a new Web Service on [Render](https://render.com) pointing at it (the included `render.yaml` preconfigures the build/start commands — Render will just ask you to fill in the three environment variables: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `APP_TOKEN`, the last one being any secret string you make up yourself).
+3. Open the Render URL on your phone, enter your `APP_TOKEN` once when prompted, and "Add to Home Screen".
+
+Static GitHub Pages hosting (no backend) is no longer sufficient once a server is involved — the Render URL is now the one to use and install.
 
 ## Customizing your program
 
@@ -60,19 +78,33 @@ const PROGRAM = {
 
 ```
 gym_tracker/
-├── index.html          # the entire app: markup, styles, and logic
-├── manifest.json        # PWA manifest (installable, home screen icon)
-├── icons/                # favicon + app icons
-└── docs/screenshots/     # images used in this README
+├── index.html             # the entire frontend: markup, styles, and logic
+├── manifest.json           # PWA manifest (installable, home screen icon)
+├── icons/                   # favicon + app icons
+├── docs/screenshots/        # images used in this README
+├── render.yaml               # Render deployment blueprint
+└── server/                    # backend: Express + Turso (hosted SQLite)
+    ├── index.js                 # HTTP server, auth, static file serving
+    ├── db.js                    # Turso client + schema
+    └── .env.example              # required environment variables
 ```
 
 ## Tech
 
-Vanilla HTML/CSS/JS. No frameworks, no dependencies, no build tooling — the whole app is one file so it's easy to read, fork, and adapt.
+Frontend: vanilla HTML/CSS/JS, no framework, no build step. Backend: Node.js + Express + [`@libsql/client`](https://github.com/tursodatabase/libsql-client-ts) talking to Turso. Deliberately minimal — one data table, two endpoints — so it's easy to read, fork, and extend.
 
 ## Privacy & data
 
-All data stays on your device in `localStorage`. Nothing is sent anywhere. Use the **Export** button in the Données tab regularly to back up your history as a JSON file (e.g. into iCloud/Drive), since clearing your browser data will erase it.
+Your data lives in your own Turso database, reachable only with your `APP_TOKEN`. Nobody at Anthropic, Render, or Turso can read it without that token; it isn't shared with any third party. Still, treat the token like a password — anyone who has it can read and overwrite your history. Use the **Export** button in the Données tab regularly for a manual JSON backup.
+
+## Roadmap
+
+Planned next, in order:
+
+1. ~~Backend + real database~~ (done)
+2. More analytics and charts on existing session/weight data
+3. An AI coaching chat (Claude) that can see your logged sets and answer questions about your training
+4. Meal photo logging — snap a photo, get a nutrition estimate
 
 ## Disclaimer
 

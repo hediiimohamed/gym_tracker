@@ -370,17 +370,65 @@ let tab   = "home";
 let draft = { sets: {}, back: 0, note: "" };
 let timer = { left: 0, on: false, iv: null };
 
-/* ---- stockage : localStorage, repli sur l'aperçu Claude ---- */
+/* ---- accès : code d'appareil, stocké une fois en local ---- */
+const TOKEN_KEY = "carnet.token";
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
+const setToken = t => { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} };
+const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
+
+/* ---- stockage : serveur (Turso) en priorité, repli local si hors-ligne ---- */
 const store = {
   async get() {
+    const t = getToken();
+    if (t) {
+      try {
+        const r = await fetch("/api/state", { headers: { Authorization: "Bearer " + t } });
+        if (r.status === 401) { clearToken(); renderUnlock(); return null; }
+        if (r.ok) return JSON.stringify(await r.json());
+      } catch (e) {}
+    }
     try { const v = localStorage.getItem(KEY); if (v !== null) return v; } catch (e) {}
     try { const r = await window.storage.get(KEY); return r && r.value ? r.value : null; } catch (e) { return null; }
   },
   async set(v) {
-    try { localStorage.setItem(KEY, v); return true; } catch (e) {}
-    try { await window.storage.set(KEY, v); return true; } catch (e) { return false; }
+    let remoteOk = false, localOk = false;
+    const t = getToken();
+    if (t) {
+      try {
+        const r = await fetch("/api/state", {
+          method: "PUT",
+          headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
+          body: v
+        });
+        if (r.status === 401) { clearToken(); renderUnlock(); }
+        remoteOk = r.ok;
+      } catch (e) {}
+    }
+    try { localStorage.setItem(KEY, v); localOk = true; } catch (e) {}
+    if (!remoteOk && !localOk) { try { await window.storage.set(KEY, v); return true; } catch (e) {} }
+    return remoteOk || localOk;
   }
 };
+
+function renderUnlock() {
+  $("#wk").textContent = "Semaine " + week();
+  $("#goalw").textContent = CYCLE.weightGoal.toFixed(1) + " kg";
+  $("#nav").innerHTML = "";
+  $("#view").innerHTML = `<div class="hero" style="margin-top:40px">
+      <div class="hero-k">Accès</div>
+      <p class="hero-note">Entre le code défini sur le serveur pour retrouver tes séances.</p>
+    </div>
+    <div class="entry">
+      <input id="tokenIn" type="password" placeholder="Code d'accès" aria-label="Code d'accès">
+      <button data-unlock>OK</button>
+    </div>`;
+  const i = $("#tokenIn"); if (i) i.focus();
+}
+
+async function boot() {
+  await load();
+  render();
+}
 
 async function load() {
   const raw = await store.get();
@@ -688,6 +736,14 @@ function render() {
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
 
+  if ("unlock" in b.dataset) {
+    const v = ($("#tokenIn").value || "").trim();
+    if (!v) return;
+    setToken(v);
+    await boot();
+    return;
+  }
+
   if (b.dataset.tab)  { tab = b.dataset.tab; render(); window.scrollTo(0,0); return; }
   if (b.dataset.rest) { startTimer(+b.dataset.rest); return; }
   if (b.dataset.back !== undefined) { draft.back = +b.dataset.back; render(); return; }
@@ -829,7 +885,11 @@ async function saveSession() {
 
 window.addEventListener("beforeunload", e => { if (dirty()) e.preventDefault(); });
 
-load().then(render);
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.id === "tokenIn") $("[data-unlock]")?.click();
+});
+
+if (getToken()) boot(); else renderUnlock();
 </script>
 </body>
 </html>
