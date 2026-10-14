@@ -59,3 +59,53 @@ export async function addChatMessage(role, content) {
 export async function clearChatMessages() {
   await db.execute("DELETE FROM chat_messages");
 }
+
+await db.execute(`
+  CREATE TABLE IF NOT EXISTS meals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_data TEXT NOT NULL,
+    note TEXT,
+    items TEXT NOT NULL,
+    calories INTEGER,
+    protein_g INTEGER,
+    carbs_g INTEGER,
+    fat_g INTEGER,
+    confidence TEXT,
+    analysis_note TEXT,
+    created_at TEXT NOT NULL
+  )
+`);
+
+export async function addMeal(m) {
+  const r = await db.execute({
+    sql: `INSERT INTO meals (image_data, note, items, calories, protein_g, carbs_g, fat_g, confidence, analysis_note, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [m.image_data, m.note || null, JSON.stringify(m.items || []), m.calories, m.protein_g, m.carbs_g, m.fat_g, m.confidence, m.analysis_note || "", new Date().toISOString()],
+  });
+  return Number(r.lastInsertRowid);
+}
+
+export async function listMeals(limit = 30) {
+  const r = await db.execute({
+    sql: `SELECT id, image_data, note, items, calories, protein_g, carbs_g, fat_g, confidence, analysis_note, created_at
+          FROM meals ORDER BY id DESC LIMIT ?`,
+    args: [limit],
+  });
+  return r.rows.map(row => ({
+    id: row.id,
+    image: row.image_data,
+    note: row.note,
+    items: JSON.parse(row.items || "[]"),
+    calories: row.calories,
+    protein_g: row.protein_g,
+    carbs_g: row.carbs_g,
+    fat_g: row.fat_g,
+    confidence: row.confidence,
+    analysisNote: row.analysis_note,
+    date: row.created_at,
+  }));
+}
+
+export async function deleteMeal(id) {
+  await db.execute({ sql: "DELETE FROM meals WHERE id = ?", args: [id] });
+}

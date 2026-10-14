@@ -2,7 +2,7 @@
 
 A workout tracker for a **Push / Pull / Legs** program: a single-file frontend backed by a small Node.js server, so your data lives in a real database instead of being trapped in one browser. Open it on your phone and log your sets.
 
-> **Status**: data layer, training analytics, and the AI coaching chat are in place. Meal-photo logging is next — see [Roadmap](#roadmap).
+> **Status**: data layer, training analytics, AI coaching chat, and meal-photo logging are all in place — see [Roadmap](#roadmap).
 
 <p align="center">
   <img src="docs/screenshots/home.png" width="220" alt="Dashboard view">
@@ -13,7 +13,8 @@ A workout tracker for a **Push / Pull / Legs** program: a single-file frontend b
 ## Features
 
 - **Dashboard** — current program week, quick links to your last Push/Pull/Legs session, weekly session count, and a weight trend sparkline at a glance.
-- **Push / Pull / Legs logging** — pre-filled with your program's sets/reps targets, shows your previous weights as placeholders so you always know what to beat, and flags priority exercises.
+- **Push / Pull / Legs logging** — pre-filled with your program's sets/reps targets, tap your last performance to instantly copy it into the current set, an execution cue and a "watch the technique" video search per exercise, and 2-3 substitution suggestions if an exercise isn't available. Priority exercises are flagged.
+- **Repas (meal logging)** — snap a photo of a meal, Claude estimates calories and macros (protein/carbs/fat) from the image. Keeps a history with daily totals. Approximate by nature — not a substitute for precise nutrition tracking.
 - **Rest timer** — 90s / 3min one-tap timers built into the logging bar.
 - **Back-health check-in** — quick tap per session (fine / slight discomfort / pain), with an automatic warning if pain is reported.
 - **Journal** — full session history with volume per session, per-exercise breakdown, and one-tap delete (with confirmation).
@@ -100,12 +101,12 @@ Your data lives in your own Turso database, reachable only with your `APP_TOKEN`
 
 ## Roadmap
 
-Planned next, in order:
-
 1. ~~Backend + real database~~ (done)
 2. ~~More analytics and charts on existing session/weight data~~ (done)
 3. ~~An AI coaching chat (Claude) that can see your logged sets and answer questions about your training~~ (done)
-4. Meal photo logging — snap a photo, get a nutrition estimate
+4. ~~Meal photo logging — snap a photo, get a nutrition estimate~~ (done)
+
+All four original phases are complete. Ideas for what's next are open — ping the repo issues.
 
 ## Disclaimer
 
