@@ -172,7 +172,30 @@
   }
   .prev {
     font-family: var(--mono); font-size: 10px; color: var(--faint);
-    width: 58px; flex: none; text-align: right;
+    width: 58px; flex: none; text-align: right; padding: 4px 0;
+    border-radius: 6px; transition: .14s;
+  }
+  .prev:not(:disabled):active { color: var(--accent-ink); background: var(--accent); }
+  .prev:disabled { cursor: default; }
+
+  .ex-video {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 9px;
+    font-size: 11.5px; color: var(--accent); text-decoration: none; font-weight: 600;
+  }
+  .ex-video svg { width: 14px; height: 14px; flex: none; }
+
+  .sub-row {
+    display: flex; align-items: center; gap: 6px; margin-top: 10px;
+    overflow-x: auto; scrollbar-width: none; padding-bottom: 1px;
+  }
+  .sub-row::-webkit-scrollbar { display: none; }
+  .sub-label {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--faint); flex: none;
+  }
+  .sub-chip {
+    flex: none; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 11px; font-size: 11px; color: var(--dim); white-space: nowrap;
   }
   .add {
     font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
@@ -333,32 +356,32 @@ const CYCLE = {
 
 const PROGRAM = {
   push: { label: "Push", cardio: "Marche inclinée tapis — 22 min", ex: [
-    { id:"dc_incl",  n:"Développé incliné haltères",        s:4, r:"8-10"  },
-    { id:"dev_ep",   n:"Développé épaules assis, dossier",  s:3, r:"10-12", note:"Assis avec dossier. Jamais debout chargé." },
-    { id:"elev_lat", n:"Élévations latérales",              s:5, r:"12-20", prio:1, note:"Priorité n°1 — largeur d'épaules. Léger, tension constante." },
-    { id:"ecart",    n:"Écartés poulie",                    s:3, r:"12-15" },
-    { id:"tri_haut", n:"Extensions triceps poulie haute",   s:3, r:"12"    },
-    { id:"tri_nuq",  n:"Extensions triceps au-dessus tête", s:3, r:"12"    },
+    { id:"dc_incl",  n:"Développé incliné haltères",        s:4, r:"8-10",  note:"Omoplates serrées, coudes à 45°, pas de rebond en bas.",         sub:["Développé incliné barre","Développé incliné machine","Pompes surélevées"] },
+    { id:"dev_ep",   n:"Développé épaules assis, dossier",  s:3, r:"10-12", note:"Assis avec dossier. Jamais debout chargé.",                       sub:["Développé Arnold","Presse épaules machine","Élévations frontales + latérales"] },
+    { id:"elev_lat", n:"Élévations latérales",              s:5, r:"12-20", prio:1, note:"Priorité n°1 — largeur d'épaules. Léger, tension constante.", sub:["Élévations à la poulie","Élévations buste penché","Machine élévations latérales"] },
+    { id:"ecart",    n:"Écartés poulie",                    s:3, r:"12-15", note:"Coudes légèrement fléchis, ne descends pas trop bas.",            sub:["Écartés haltères banc plat","Pec-deck","Écartés câble vis-à-vis"] },
+    { id:"tri_haut", n:"Extensions triceps poulie haute",   s:3, r:"12",    note:"Coudes fixes, collés au corps.",                                   sub:["Extensions à la corde","Dips assistés","Barre EZ au front"] },
+    { id:"tri_nuq",  n:"Extensions triceps au-dessus tête", s:3, r:"12",    note:"Étirement complet derrière la tête, coudes rentrés.",              sub:["Extensions unilatérales","Barre EZ au front","Kickback poulie"] },
   ]},
   pull: { label: "Pull", cardio: "Marche inclinée tapis — 22 min", ex: [
-    { id:"trac",     n:"Tractions prise large",             s:4, r:"max",   prio:1, note:"Assistées si besoin. Prise large = largeur du dos." },
-    { id:"tir_vert", n:"Tirage vertical prise large",       s:4, r:"10-12", prio:1 },
-    { id:"tir_app",  n:"Tirage poitrine appuyée",           s:3, r:"10-12", note:"Poitrine calée. Remplace le rowing buste penché." },
-    { id:"pullover", n:"Pull-over poulie bras tendus",      s:3, r:"12-15", prio:1 },
-    { id:"facepull", n:"Face pull",                         s:3, r:"15-20" },
-    { id:"curl_inc", n:"Curl incliné",                      s:3, r:"10-12" },
-    { id:"curl_mar", n:"Curl marteau",                      s:3, r:"10-12" },
+    { id:"trac",     n:"Tractions prise large",             s:4, r:"max",   prio:1, note:"Assistées si besoin. Prise large = largeur du dos.",       sub:["Tirage vertical prise large","Tractions assistées machine","Pull-down poulie"] },
+    { id:"tir_vert", n:"Tirage vertical prise large",       s:4, r:"10-12", prio:1, note:"Tire la barre vers le haut de la poitrine, coudes vers le bas.", sub:["Tractions prise large","Tirage prise serrée","Tirage machine convergente"] },
+    { id:"tir_app",  n:"Tirage poitrine appuyée",           s:3, r:"10-12", note:"Poitrine calée. Remplace le rowing buste penché.",                sub:["Rowing buste penché","Rowing T-bar","Tirage horizontal poulie basse"] },
+    { id:"pullover", n:"Pull-over poulie bras tendus",      s:3, r:"12-15", prio:1, note:"Bras presque tendus, sens le dorsal s'étirer en haut.",     sub:["Pull-over haltère au banc","Tirage bras tendus poulie haute","Straight-arm pulldown"] },
+    { id:"facepull", n:"Face pull",                         s:3, r:"15-20", note:"Tire vers le visage, coudes hauts, rotation externe en fin de mouvement.", sub:["Rear delt fly machine","Oiseau haltères","Élévations arrière poulie"] },
+    { id:"curl_inc", n:"Curl incliné",                      s:3, r:"10-12", note:"Coudes vers l'arrière, pas de triche avec les épaules.",          sub:["Curl pupitre","Curl barre EZ","Curl câble"] },
+    { id:"curl_mar", n:"Curl marteau",                      s:3, r:"10-12", note:"Prise neutre — travaille aussi l'avant-bras.",                    sub:["Curl marteau câble","Curl prise neutre incliné","Curl araignée"] },
   ]},
   legs: { label: "Legs", cardio: null, ex: [
-    { id:"presse",   n:"Presse à cuisses",                  s:4, r:"10-12", note:"Dos entièrement calé. Le bassin ne décolle jamais." },
-    { id:"hack",     n:"Hack squat ou goblet léger",        s:3, r:"10-12" },
-    { id:"legcurl",  n:"Leg curl allongé",                  s:4, r:"12-15" },
-    { id:"hip",      n:"Hip thrust",                        s:3, r:"12"    },
-    { id:"legext",   n:"Extension quadriceps",              s:3, r:"15"    },
-    { id:"mollets",  n:"Mollets debout",                    s:4, r:"15-20" },
-    { id:"deadbug",  n:"Dead bug",                          s:3, r:"10"    },
-    { id:"birddog",  n:"Bird-dog",                          s:3, r:"10"    },
-    { id:"pallof",   n:"Pallof press",                      s:3, r:"10"    },
+    { id:"presse",   n:"Presse à cuisses",                  s:4, r:"10-12", note:"Dos entièrement calé. Le bassin ne décolle jamais.",              sub:["Squat gobelet","Hack squat","Presse unilatérale"] },
+    { id:"hack",     n:"Hack squat ou goblet léger",        s:3, r:"10-12", note:"Pieds légèrement devant, talons au sol jusqu'à 90°.",             sub:["Squat gobelet","Presse à cuisses","Squat Smith machine"] },
+    { id:"legcurl",  n:"Leg curl allongé",                  s:4, r:"12-15", note:"Contraction complète en haut, redescends lentement.",             sub:["Leg curl assis","Nordic curl assisté","Soulevé de terre jambes tendues léger"] },
+    { id:"hip",      n:"Hip thrust",                        s:3, r:"12",    note:"Pousse par les talons, contraction glutes 1 seconde en haut.",     sub:["Pont fessier au sol","Hip thrust machine","Extension de hanche à la poulie"] },
+    { id:"legext",   n:"Extension quadriceps",              s:3, r:"15",    note:"Contraction en haut, ne balance pas le buste.",                   sub:["Leg extension unilatérale","Squat sissy","Fentes bulgares"] },
+    { id:"mollets",  n:"Mollets debout",                    s:4, r:"15-20", note:"Amplitude complète, pause en haut et en bas.",                    sub:["Mollets assis","Mollets à la presse","Mollets unilatéral haltère"] },
+    { id:"deadbug",  n:"Dead bug",                          s:3, r:"10",    note:"Bas du dos plaqué au sol en permanence.",                          sub:["Bird-dog","Planche","Pallof press"] },
+    { id:"birddog",  n:"Bird-dog",                          s:3, r:"10",    note:"Mouvement lent, évite toute rotation du bassin.",                 sub:["Dead bug","Planche latérale","Superman"] },
+    { id:"pallof",   n:"Pallof press",                      s:3, r:"10",    note:"Résiste à la rotation, le buste ne doit pas tourner.",             sub:["Dead bug","Planche anti-rotation","Woodchop câble"] },
   ]},
 };
 
@@ -390,6 +413,7 @@ const ICONS = {
   data:    `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 15.5a3.5 3.5 0 0 1-.5-6.96 4.5 4.5 0 0 1 8.6-1.9A3.5 3.5 0 0 1 15.5 15.5Z"/></svg>`,
   trash:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6h11M8 6V4.5h4V6M6 6l.6 9.4a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9L14 6"/></svg>`,
   coach:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h11A1.5 1.5 0 0 1 17 5.5v6A1.5 1.5 0 0 1 15.5 13H9l-3.5 3v-3H4.5A1.5 1.5 0 0 1 3 11.5v-6Z"/></svg>`,
+  play:    `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.3"/><path d="M8.3 7.2v5.6l4.8-2.8-4.8-2.8Z" fill="currentColor" stroke="none"/></svg>`,
 };
 
 let state = { sessions: [], weights: [], measures: [] };
@@ -656,14 +680,17 @@ function viewDay(key) {
           value="${d.kg ?? ""}" placeholder="${p ? p.kg : "—"}" aria-label="Charge série ${i+1}"><u>kg</u></span>
         <span class="fld"><input inputmode="numeric" data-ex="${ex.id}" data-i="${i}" data-f="reps"
           value="${d.reps ?? ""}" placeholder="${p ? p.reps : "—"}" aria-label="Répétitions série ${i+1}"><u>reps</u></span>
-        <span class="prev">${p ? p.kg + "×" + p.reps : "1<sup>re</sup>"}</span>
+        <button class="prev" data-fillprev="${ex.id}" data-i="${i}" ${p ? "" : "disabled"} aria-label="Reprendre la charge de la dernière fois">${p ? p.kg + "×" + p.reps : "1<sup>re</sup>"}</button>
       </div>`;
     }
+    const videoHref = `https://www.youtube.com/results?search_query=${encodeURIComponent(ex.n + " technique musculation")}`;
     h += `<section class="ex" data-prio="${ex.prio||0}">
       <div class="ex-head">
         <div class="ex-name">${esc(ex.n)}</div>
         <div class="ex-sub">${ex.s} × ${ex.r}${ex.prio ? " · <em>priorité</em>" : ""}</div>
         ${ex.note ? `<div class="ex-note">${esc(ex.note)}</div>` : ""}
+        <a class="ex-video" href="${videoHref}" target="_blank" rel="noopener">${ICONS.play}<span>Voir la technique</span></a>
+        ${ex.sub && ex.sub.length ? `<div class="sub-row"><span class="sub-label">Si indispo</span>${ex.sub.map(s => `<span class="sub-chip">${esc(s)}</span>`).join("")}</div>` : ""}
       </div>
       <div class="sets">${rows}</div>
       <button class="add" data-add="${ex.id}">+ série</button>
@@ -928,6 +955,20 @@ document.addEventListener("click", async e => {
     const cur = draft.sets[id] || [];
     const n = cur.length || ex.s;
     draft.sets[id] = Array.from({length:n+1}, (_,i) => cur[i] || {});
+    render(); return;
+  }
+
+  if (b.dataset.fillprev) {
+    const id = b.dataset.fillprev, idx = +b.dataset.i;
+    const prev = lastSets(id);
+    const p = prev && prev[idx];
+    if (!p) return;
+    const ex = exById(id);
+    const cur = draft.sets[id] || [];
+    const n = cur.length || ex.s;
+    const next = Array.from({length: n}, (_, i) => cur[i] || {});
+    next[idx] = { kg: p.kg, reps: p.reps };
+    draft.sets[id] = next;
     render(); return;
   }
 
