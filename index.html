@@ -559,9 +559,9 @@ function lastSets(id) {
   }
   return null;
 }
-function bestVol(id) {
+function bestVol(id, skip) {
   let b = 0;
-  state.sessions.forEach(s => (s.ex[id] || []).forEach(x => { const v = x.kg * x.reps; if (v > b) b = v; }));
+  state.sessions.forEach(s => s !== skip && (s.ex[id] || []).forEach(x => { const v = x.kg * x.reps; if (v > b) b = v; }));
   return b;
 }
 function avg(arr, days) {
@@ -1352,25 +1352,31 @@ function startTimer(sec) {
 }
 
 async function saveSession() {
+  // une seule séance par jour et par type : réenregistrer remplace celle du jour
+  const today = new Date().toDateString();
+  const dupIdx = state.sessions.findIndex(s => s.type === tab && new Date(s.date).toDateString() === today);
+  const dup = state.sessions[dupIdx];
   const ex = {}; let pr = 0;
   Object.entries(draft.sets).forEach(([id, sets]) => {
     const clean = sets.filter(s => s && (s.kg || s.reps))
                       .map(s => s.q != null ? { kg: num(s.kg) || 0, reps: num(s.reps) || 0, q: s.q }
                                             : { kg: num(s.kg) || 0, reps: num(s.reps) || 0 });
     if (!clean.length) return;
-    const best = bestVol(id);
+    const best = bestVol(id, dup);
     if (best > 0) clean.forEach(s => { if (s.kg * s.reps > best) pr++; });
     ex[id] = clean;
   });
   if (!Object.keys(ex).length) { toast("Rien à enregistrer"); return; }
 
-  state.sessions.push({
+  const session = {
     date: new Date().toISOString(), type: tab, ex,
     back: draft.back, note: draft.note.trim()
-  });
+  };
+  if (dup) state.sessions[dupIdx] = session; else state.sessions.push(session);
   await persist();
   draft = { sets: {}, back: 0, note: "" };
-  toast(pr ? `Enregistré · ${pr} record${pr>1?"s":""}` : "Séance enregistrée");
+  const msg = dup ? "Séance enregistrée · remplace celle d'aujourd'hui" : "Séance enregistrée";
+  toast(pr ? `${msg} · ${pr} record${pr>1?"s":""}` : msg);
   render();
 }
 
