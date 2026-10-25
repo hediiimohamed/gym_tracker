@@ -19,6 +19,7 @@ A workout tracker for a **Push / Pull / Legs** program: a single-file frontend b
 - **Back-health check-in** — quick tap per session (fine / slight discomfort / pain), with an automatic warning if pain is reported.
 - **Journal** — full session history with volume per session, per-exercise breakdown, and one-tap delete (with confirmation).
 - **Suivi (tracking)** — fasted body weight with a 7-day / 28-day trend, training volume per session (color-coded by Push/Pull/Legs), per-exercise progress charts (pick any exercise, see its best weight over time), body measurements, and a shoulder-to-waist ratio.
+- **Bilan de séance** — after saving, tap *Analyser avec Claude*: Claude (Opus) reviews the session against your previous ones and the plan, comments each exercise, and sets a numeric target for next time. Targets then show on each exercise card the next time you open that day. Each set also has a form button (✓ 1 / ~ 0.5 / ✗ 0) so you can rate your technique; the review won't push the load up on sets you rated poorly.
 - **Coach** — a chat tab backed by Claude (Haiku), which sees your recent sessions, volume, and weight trend so its answers are grounded in your actual training rather than generic advice. Not a medical professional — it's told to point you to a doctor or physio for anything pain- or injury-related.
 - **Synced storage** — data is saved to a real database (via a small backend) so it survives across devices and isn't lost if you clear your browser. Export to JSON any time as a manual backup, import to restore. A guarded "erase everything" option lives in Données. If the server is briefly unreachable, it falls back to the browser's local storage so you never lose a set mid-workout.
 - **Installable** — includes a web app manifest and icons, so it can be added to your phone's home screen and used like a native app.
@@ -88,6 +89,7 @@ gym_tracker/
 └── server/                    # backend: Express + Turso (hosted SQLite)
     ├── index.js                 # HTTP server, auth, static file serving
     ├── db.js                    # Turso client + schema
+    ├── review.js                # Claude session review + next-session targets
     └── .env.example              # required environment variables
 ```
 

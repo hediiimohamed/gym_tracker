@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal } from "./db.js";
 import { buildContext, askCoach } from "./coach.js";
 import { analyzeMeal } from "./food.js";
+import { reviewSession } from "./review.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -83,6 +84,18 @@ app.delete("/api/chat", requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "failed to clear chat" });
+  }
+});
+
+app.post("/api/review", requireAuth, async (req, res) => {
+  try {
+    const { session, history, program, week, rampWeeks } = req.body || {};
+    if (!session || !session.ex || !program) return res.status(400).json({ error: "session and program required" });
+    const review = await reviewSession({ session, history, program, week, rampWeeks });
+    res.json(review);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "analyse impossible" });
   }
 });
 

@@ -22,6 +22,7 @@
     --text:#edeff3; --dim:#8a93a4; --faint:#586072;
     --accent:#4f7fff; --accent-ink:#071029; --accent-soft:rgba(79,127,255,.14);
     --gold:#f0b429; --danger:#f2555f; --danger-soft:rgba(242,85,95,.12); --violet:#a97bff;
+    --good:#34c98a; --good-soft:rgba(52,201,138,.13); --gold-soft:rgba(240,180,41,.13);
     --mono: ui-monospace,"SF Mono","Roboto Mono",Menlo,monospace;
     --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
@@ -195,6 +196,33 @@
   }
   .prev:not(:disabled):active { color: var(--accent-ink); background: var(--accent); }
   .prev:disabled { cursor: default; }
+
+  .q {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: var(--surface2); border: 1px solid var(--border);
+    font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--faint);
+    transition: .14s;
+  }
+  .q[data-v="1"]   { background: var(--good-soft); border-color: var(--good); color: var(--good); }
+  .q[data-v="0.5"] { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
+  .q[data-v="0"]   { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+  .qm { font-weight: 700; margin-left: 2px; }
+  .qm[data-v="1"] { color: var(--good); } .qm[data-v="0.5"] { color: var(--gold); } .qm[data-v="0"] { color: var(--danger); }
+
+  .ex-target {
+    margin-top: 9px; padding: 7px 10px; border-radius: 8px; background: var(--accent-soft);
+    font-size: 12px; line-height: 1.45; color: var(--text);
+  }
+  .ex-target b { font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-right: 5px; }
+  .ex-target span { display: block; color: var(--dim); font-size: 11.5px; margin-top: 3px; }
+
+  .review { border-color: var(--accent); }
+  .review .k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  .review p { margin: 7px 0 0; font-size: 13px; line-height: 1.55; }
+  .review .ghostbtn { margin: 12px 0 0; }
+  .review-ex { margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--dim); }
+  .review-ex strong { color: var(--text); font-weight: 600; }
+  .review-ex em { font-style: normal; font-family: var(--mono); color: var(--accent); }
 
   .ex-video {
     display: inline-flex; align-items: center; gap: 5px; margin-top: 9px;
@@ -432,7 +460,7 @@ const ICONS = {
   trash:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6h11M8 6V4.5h4V6M6 6l.6 9.4a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9L14 6"/></svg>`,
   coach:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h11A1.5 1.5 0 0 1 17 5.5v6A1.5 1.5 0 0 1 15.5 13H9l-3.5 3v-3H4.5A1.5 1.5 0 0 1 3 11.5v-6Z"/></svg>`,
   play:    `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.3"/><path d="M8.3 7.2v5.6l4.8-2.8-4.8-2.8Z" fill="currentColor" stroke="none"/></svg>`,
-  meal:    `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5v6a2 2 0 0 0 2 2v5M5 3.5v4M7 3.5v4"/><path d="M14 3.5c-1.4 0-2.5 1.6-2.5 4s1.1 3.7 1.5 3.9V16.5"/></svg>`,
+  meals:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5v6a2 2 0 0 0 2 2v5M5 3.5v4M7 3.5v4"/><path d="M14 3.5c-1.4 0-2.5 1.6-2.5 4s1.1 3.7 1.5 3.9V16.5"/></svg>`,
   camera:  `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h1.8l.9-1.5h5.6l.9 1.5h1.8A1.5 1.5 0 0 1 17 7.5v7A1.5 1.5 0 0 1 15.5 16h-11A1.5 1.5 0 0 1 3 14.5v-7Z"/><circle cx="10" cy="11" r="3"/></svg>`,
 };
 
@@ -443,6 +471,7 @@ let chat  = { messages: [], loaded: false, loading: false };
 let meals = { items: [], loaded: false, uploading: false, pending: null, pendingPreview: null };
 let draft = { sets: {}, back: 0, note: "" };
 let timer = { left: 0, on: false, iv: null };
+let reviewing = null; // date de la séance en cours d'analyse par Claude
 
 /* ---- accès : code d'appareil, stocké une fois en local ---- */
 const TOKEN_KEY = "carnet.token";
@@ -625,6 +654,11 @@ function toast(msg) {
 }
 const dirty = () => Object.values(draft.sets).some(a => a.some(x => x && (x.kg || x.reps)));
 
+/* note de forme technique par série : non notée → 1 → 0.5 → 0 → non notée */
+const Q_NEXT = { "": 1, "1": 0.5, "0.5": 0, "0": null };
+const Q_SYM  = { 1: "✓", 0.5: "~", 0: "✗" };
+const qMark = q => q == null ? "" : `<span class="qm" data-v="${q}">${Q_SYM[q]}</span>`;
+
 /* ---- boîte de confirmation ---- */
 function confirmDialog({ title = "Confirmer", message, confirmLabel = "Confirmer", danger = false }) {
   return new Promise(resolve => {
@@ -715,6 +749,10 @@ function viewDay(key) {
     h += `<p class="hint">Encore une seule semaine de ${day.label} enregistrée — la comparaison semaine après semaine apparaîtra ici dès la prochaine.</p>`;
   }
 
+  const lastS = lastOfType(key);
+  const targets = (lastS && lastS.review && lastS.review.exercises) || {};
+  if (lastS) h += reviewCard(lastS, true);
+
   day.ex.forEach(ex => {
     const prev = lastSets(ex.id);
     const n = (draft.sets[ex.id] || []).length || ex.s;
@@ -728,6 +766,7 @@ function viewDay(key) {
           value="${d.kg ?? ""}" placeholder="${p ? p.kg : "—"}" aria-label="Charge série ${i+1}"><u>kg</u></span>
         <span class="fld"><input inputmode="numeric" data-ex="${ex.id}" data-i="${i}" data-f="reps"
           value="${d.reps ?? ""}" placeholder="${p ? p.reps : "—"}" aria-label="Répétitions série ${i+1}"><u>reps</u></span>
+        <button class="q" data-q="${ex.id}" data-i="${i}" data-v="${d.q ?? ""}" aria-label="Forme technique série ${i+1} : ${d.q == null ? "non notée" : d.q}">${d.q == null ? "·" : Q_SYM[d.q]}</button>
         <button class="prev" data-fillprev="${ex.id}" data-i="${i}" ${p ? "" : "disabled"} aria-label="Reprendre la charge de la dernière fois">${p ? p.kg + "×" + p.reps : "1<sup>re</sup>"}</button>
       </div>`;
     }
@@ -737,6 +776,7 @@ function viewDay(key) {
         <div class="ex-name">${esc(ex.n)}</div>
         <div class="ex-sub">${ex.s} × ${ex.r}${ex.prio ? " · <em>priorité</em>" : ""}</div>
         ${ex.note ? `<div class="ex-note">${esc(ex.note)}</div>` : ""}
+        ${targets[ex.id] ? `<div class="ex-target"><b>Objectif</b>${esc(targets[ex.id].target)}${targets[ex.id].comment ? `<span>${esc(targets[ex.id].comment)}</span>` : ""}</div>` : ""}
         <a class="ex-video" href="${videoHref}" target="_blank" rel="noopener">${ICONS.play}<span>Voir la technique</span></a>
         ${ex.sub && ex.sub.length ? `<div class="sub-row"><span class="sub-label">Si indispo</span>${ex.sub.map(s => `<span class="sub-chip">${esc(s)}</span>`).join("")}</div>` : ""}
       </div>
@@ -759,6 +799,28 @@ function viewDay(key) {
 
   h += bar();
   return h;
+}
+
+function reviewCard(s, compact) {
+  const r = s.review;
+  if (!r) {
+    const busy = reviewing === s.date;
+    return `<div class="card review">
+      <div class="k">${compact ? "Dernière séance · " + fmtD(s.date) : "Coach"}</div>
+      <p>${compact ? "Pas encore analysée. " : ""}Claude commente la séance et fixe tes objectifs pour la prochaine.</p>
+      <button class="ghostbtn" data-review="${s.date}" ${busy || reviewing ? "disabled" : ""}>${busy ? "Analyse en cours…" : "Analyser avec Claude"}</button>
+    </div>`;
+  }
+  const exLines = compact ? "" : Object.entries(r.exercises || {}).map(([id, x]) => {
+    const e = exById(id);
+    return `<div class="review-ex"><strong>${esc(e ? e.n : id)}</strong> — ${esc(x.comment)}<br><em>→ ${esc(x.target)}</em></div>`;
+  }).join("");
+  return `<div class="card review">
+    <div class="k">Bilan du coach${compact ? " · " + fmtD(s.date) : ""}</div>
+    <p>${esc(r.summary)}</p>
+    ${exLines}
+    ${compact ? "" : `<button class="ghostbtn" data-review="${s.date}" ${reviewing ? "disabled" : ""}>${reviewing === s.date ? "Analyse en cours…" : "Relancer l'analyse"}</button>`}
+  </div>`;
 }
 
 function bar() {
@@ -816,7 +878,7 @@ function viewMeals() {
 
   h += `<h2 class="sec">Historique</h2>`;
   if (!meals.items.length) {
-    h += `<div class="empty">${ICONS.meal}<br>Prends une photo de ton repas pour avoir une estimation des calories et macros.</div>`;
+    h += `<div class="empty">${ICONS.meals}<br>Prends une photo de ton repas pour avoir une estimation des calories et macros.</div>`;
   } else {
     h += meals.items.map(m => `<article class="card meal-card">
       <div class="date-row">
@@ -846,7 +908,7 @@ function viewJournal() {
     const vol = Object.values(s.ex).flat().reduce((a,x) => a + x.kg * x.reps, 0);
     const lines = Object.entries(s.ex).map(([id, sets]) => {
       const e = exById(id);
-      return `<div><strong>${esc(e ? e.n : id)}</strong><br>${sets.map(x => x.kg + "×" + x.reps).join("  ")}</div>`;
+      return `<div><strong>${esc(e ? e.n : id)}</strong><br>${sets.map(x => x.kg + "×" + x.reps + qMark(x.q)).join("  ")}</div>`;
     }).join("");
     return `<article class="card">
       <div class="date-row">
@@ -857,7 +919,7 @@ function viewJournal() {
       <div class="body">${lines}</div>
       ${s.note ? `<div class="said">${esc(s.note)}</div>` : ""}
       ${s.back ? `<div class="dosflag">Dos · ${s.back===2 ? "douleur signalée" : "gêne légère"}</div>` : ""}
-    </article>`;
+    </article>${PROGRAM[s.type] ? reviewCard(s, false) : ""}`;
   }).join("");
 }
 
@@ -1141,6 +1203,23 @@ document.addEventListener("click", async e => {
     render(); return;
   }
 
+  if (b.dataset.q) {
+    const id = b.dataset.q, idx = +b.dataset.i, ex = exById(id);
+    const cur = draft.sets[id] || [];
+    const next = Array.from({length: cur.length || ex.s}, (_, i) => cur[i] || {});
+    const q = Q_NEXT[String(next[idx].q ?? "")];
+    const row = { ...next[idx] };
+    if (q == null) delete row.q; else row.q = q;
+    next[idx] = row;
+    draft.sets[id] = next;
+    b.dataset.v = q ?? "";
+    b.textContent = q == null ? "·" : Q_SYM[q];
+    b.setAttribute("aria-label", `Forme technique série ${idx+1} : ${q == null ? "non notée" : q}`);
+    return;
+  }
+
+  if (b.dataset.review) { await reviewLastSession(b.dataset.review); return; }
+
   if (b.dataset.fillprev) {
     const id = b.dataset.fillprev, idx = +b.dataset.i;
     const prev = lastSets(id);
@@ -1150,7 +1229,7 @@ document.addEventListener("click", async e => {
     const cur = draft.sets[id] || [];
     const n = cur.length || ex.s;
     const next = Array.from({length: n}, (_, i) => cur[i] || {});
-    next[idx] = { kg: p.kg, reps: p.reps };
+    next[idx] = { ...next[idx], kg: p.kg, reps: p.reps };
     draft.sets[id] = next;
     render(); return;
   }
@@ -1276,7 +1355,8 @@ async function saveSession() {
   const ex = {}; let pr = 0;
   Object.entries(draft.sets).forEach(([id, sets]) => {
     const clean = sets.filter(s => s && (s.kg || s.reps))
-                      .map(s => ({ kg: num(s.kg) || 0, reps: num(s.reps) || 0 }));
+                      .map(s => s.q != null ? { kg: num(s.kg) || 0, reps: num(s.reps) || 0, q: s.q }
+                                            : { kg: num(s.kg) || 0, reps: num(s.reps) || 0 });
     if (!clean.length) return;
     const best = bestVol(id);
     if (best > 0) clean.forEach(s => { if (s.kg * s.reps > best) pr++; });
@@ -1291,6 +1371,38 @@ async function saveSession() {
   await persist();
   draft = { sets: {}, back: 0, note: "" };
   toast(pr ? `Enregistré · ${pr} record${pr>1?"s":""}` : "Séance enregistrée");
+  render();
+}
+
+async function reviewLastSession(dateStr) {
+  const s = state.sessions.find(x => x.date === dateStr);
+  if (!s || !PROGRAM[s.type] || reviewing) return;
+  const history = state.sessions.filter(x => x.type === s.type && x.date < s.date).slice(-3)
+    .map(({ date, ex, back, note }) => ({ date, ex, back, note }));
+  reviewing = s.date;
+  render();
+  try {
+    const r = await fetch("/api/review", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + getToken(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session: { date: s.date, ex: s.ex, back: s.back, note: s.note },
+        history, program: PROGRAM[s.type], week: week(), rampWeeks: CYCLE.rampWeeks
+      })
+    });
+    if (r.status === 401) { clearToken(); reviewing = null; renderUnlock(); return; }
+    const j = await r.json();
+    if (r.ok) {
+      s.review = { summary: j.summary, exercises: j.exercises, date: new Date().toISOString() };
+      await persist();
+      toast("Bilan prêt");
+    } else {
+      toast("Analyse impossible");
+    }
+  } catch (e) {
+    toast("Connexion impossible");
+  }
+  reviewing = null;
   render();
 }
 
