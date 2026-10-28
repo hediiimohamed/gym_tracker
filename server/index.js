@@ -2,10 +2,11 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal } from "./db.js";
+import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal, mealTotals } from "./db.js";
 import { buildContext, askCoach } from "./coach.js";
 import { analyzeMeal } from "./food.js";
 import { reviewSession } from "./review.js";
+import { planSession } from "./plan.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
@@ -72,7 +73,12 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     const { data: rawState } = await getState();
     const state = rawState ? JSON.parse(rawState) : { sessions: [], weights: [], measures: [] };
-    const context = buildContext(state);
+    const { names, days } = req.body;
+    const meals = days ? {
+      today: await mealTotals(days.today[0], days.today[1]),
+      yesterday: await mealTotals(days.yesterday[0], days.yesterday[1]),
+    } : {};
+    const context = buildContext(state, { names, meals });
 
     const reply = await askCoach(history, context);
     await addChatMessage("assistant", reply);
@@ -96,13 +102,26 @@ app.delete("/api/chat", requireAuth, async (req, res) => {
 
 app.post("/api/review", requireAuth, async (req, res) => {
   try {
-    const { session, history, program, week, rampWeeks } = req.body || {};
+    const { session, history, program, reprise, daysSinceLast, seenLoads } = req.body || {};
     if (!session || !session.ex || !program) return res.status(400).json({ error: "session and program required" });
-    const review = await reviewSession({ session, history, program, week, rampWeeks });
+    const review = await reviewSession({ session, history, program, reprise, daysSinceLast, seenLoads });
     res.json(review);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message || "analyse impossible" });
+  }
+});
+
+app.post("/api/plan", requireAuth, async (req, res) => {
+  try {
+    const { program, history, daysSinceLast, reprise, seenLoads, today, bodyweight } = req.body || {};
+    if (!program || !Array.isArray(program.ex)) return res.status(400).json({ error: "program required" });
+    const mealsToday = today ? await mealTotals(today[0], today[1]) : null;
+    const plan = await planSession({ program, history, daysSinceLast, reprise, seenLoads, mealsToday, bodyweight });
+    res.json(plan);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "plan impossible" });
   }
 });
 

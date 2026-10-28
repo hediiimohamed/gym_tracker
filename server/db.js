@@ -154,3 +154,15 @@ export async function listMeals(limit = 30) {
 export async function deleteMeal(id) {
   await db.execute({ sql: "DELETE FROM meals WHERE id = ?", args: [id] });
 }
+
+// Totaux des repas entre deux instants (bornes du jour local du client).
+export async function mealTotals(startIso, endIso) {
+  const r = await db.execute({
+    sql: `SELECT COUNT(*) AS n, SUM(calories) AS kcal, SUM(protein_g) AS p, SUM(carbs_g) AS c, SUM(fat_g) AS f
+          FROM meals WHERE created_at >= ? AND created_at < ?`,
+    args: [startIso, endIso],
+  });
+  const row = r.rows[0];
+  if (!row || !Number(row.n)) return null;
+  return { count: Number(row.n), kcal: Number(row.kcal) || 0, protein_g: Number(row.p) || 0, carbs_g: Number(row.c) || 0, fat_g: Number(row.f) || 0 };
+}

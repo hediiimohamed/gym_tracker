@@ -225,6 +225,9 @@
   .ex-target span { display: block; color: var(--dim); font-size: 11.5px; margin-top: 3px; }
 
   .review { border-color: var(--accent); }
+  .ex-target .why { font-style: italic; color: var(--faint); }
+  .plan-list { margin: 9px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: var(--dim); }
+  .plan-list.ask li::marker { content: "? "; color: var(--gold); font-weight: 700; }
   .review .k { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
   .review p { margin: 7px 0 0; font-size: 13px; line-height: 1.55; }
   .review .ghostbtn { margin: 12px 0 0; }
@@ -406,7 +409,7 @@
 const CYCLE = {
   start:      "2026-08-25",   // début du cycle
   weightGoal: 71.5,           // kg visés en fin de cycle
-  rampWeeks:  2,              // semaines en charges réduites après coupure
+  breakDays:  10,             // jours sans séance à partir desquels on compte une reprise
 };
 
 const PROGRAM = {
@@ -478,7 +481,10 @@ let tab   = "home";
 let analyticsEx = null;
 let chat  = { messages: [], loaded: false, loading: false };
 let meals = { items: [], loaded: false, uploading: false, pending: null, pendingPreview: null };
-let draft = { sets: {}, back: 0, note: "" };
+const DRAFT_KEY = "carnet.draft";
+const emptyDraft = () => ({ sets: {}, back: 0, note: "", plans: {} });
+let draft = emptyDraft();
+let planning = null; // type de séance dont le plan est en cours de préparation
 let timer = { left: 0, on: false, iv: null };
 let reviewing = null; // date de la séance en cours d'analyse par Claude
 
@@ -622,6 +628,7 @@ function renderUnlock() {
 }
 
 async function boot() {
+  loadDraft();
   if (await load()) render();
 }
 
@@ -772,6 +779,44 @@ const Q_NEXT = { "": 1, "1": 0.5, "0.5": 0, "0": null };
 const Q_SYM  = { 1: "✓", 0.5: "~", 0: "✗" };
 const qMark = q => q == null ? "" : `<span class="qm" data-v="${q}">${Q_SYM[q]}</span>`;
 
+/* brouillon de séance (saisies + plans) : survit à un rechargement */
+const saveDraft = () => lsSet(DRAFT_KEY, JSON.stringify(draft));
+function loadDraft() {
+  try { const d = JSON.parse(lsGet(DRAFT_KEY)); if (d && d.sets) draft = { ...emptyDraft(), ...d }; } catch (e) {}
+}
+
+/* contexte envoyé à Claude (plan, bilan, coach) */
+// en jours calendaires (hier 22h → aujourd'hui = 1 jour)
+const midnight = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const daysBetween = (a, b) => Math.round((midnight(b) - midnight(a)) / 864e5);
+// Reprise : rang de la séance (à la date `at`) depuis la dernière coupure ≥ CYCLE.breakDays.
+function repriseInfo(at = new Date().toISOString()) {
+  const seq = [...state.sessions.map(s => s.date).filter(d => d < at).sort(), at];
+  const daysSinceLast = seq.length > 1 ? daysBetween(seq[seq.length - 2], at) : null;
+  for (let i = seq.length - 1; i > 0 && seq.length - i <= 3; i--) {
+    const gap = daysBetween(seq[i - 1], seq[i]);
+    if (gap >= CYCLE.breakDays) return { daysSinceLast, reprise: { n: seq.length - i, gapDays: gap } };
+  }
+  return { daysSinceLast, reprise: null };
+}
+function seenLoads(ids) {
+  const out = {};
+  ids.forEach(id => {
+    const kgs = new Set();
+    state.sessions.forEach(s => (s.ex[id] || []).forEach(x => x.kg && kgs.add(x.kg)));
+    if (kgs.size) out[id] = [...kgs].sort((a, b) => a - b);
+  });
+  return out;
+}
+function dayRange(offset) {
+  const a = new Date(); a.setHours(0, 0, 0, 0); a.setDate(a.getDate() + offset);
+  const b = new Date(a); b.setDate(b.getDate() + 1);
+  return [a.toISOString(), b.toISOString()];
+}
+const latestBodyweight = () => state.weights.length ? state.weights[state.weights.length - 1].kg : null;
+const sessionForClaude = ({ date, type, ex, back, note, review }) => ({ date, type, ex, back, note, review });
+const fmtSets = sets => sets.map(x => `${x.kg}×${x.reps}`).join(" · ");
+
 /* ---- boîte de confirmation ---- */
 function confirmDialog({ title = "Confirmer", message, confirmLabel = "Confirmer", danger = false }) {
   return new Promise(resolve => {
@@ -804,13 +849,13 @@ function nav() {
 
 function viewHome() {
   const w = week();
-  const phase = w <= CYCLE.rampWeeks;
+  const { reprise } = repriseInfo();
   const days = [["push","Push"],["pull","Pull"],["legs","Legs"]];
 
   let h = `<div class="hero">
     <div class="hero-row"><span class="hero-k">Semaine</span><span class="hero-v">${w}</span></div>
-    <p class="hero-note">${phase
-      ? `Phase de reprise — charges à 50-60&nbsp;%, RIR 3-4, aucune série à l'échec.`
+    <p class="hero-note">${reprise && reprise.n < 3
+      ? `Reprise après ${reprise.gapDays} jours sans séance — prochaine séance à ~${reprise.n === 1 ? "80" : "90-95"}&nbsp;% de l'habituel.`
       : `Phase normale. Progresse charge ou répétition, séance après séance.`}</p>
   </div>`;
 
@@ -842,9 +887,10 @@ function viewDay(key) {
   const day = PROGRAM[key];
   let h = "";
 
-  if (week() <= CYCLE.rampWeeks) {
-    h += `<div class="phase"><div><b>Phase de reprise — semaines 1 à ${CYCLE.rampWeeks}.</b>
-      Charges à 50-60 % de tes anciennes, RIR 3-4, aucune série à l'échec.
+  const { reprise } = repriseInfo();
+  if (reprise && reprise.n < 3) {
+    h += `<div class="phase"><div><b>Reprise — séance ${reprise.n} après ${reprise.gapDays} jours sans séance.</b>
+      Charges à ~${reprise.n === 1 ? "80" : "90-95"} % de l'habituel, aucune série à l'échec.
       Douleur qui irradie dans la jambe, engourdissement ou perte de force : tu arrêtes la séance et tu consultes.</div></div>`;
   }
 
@@ -863,10 +909,20 @@ function viewDay(key) {
   }
 
   const lastS = lastOfType(key);
-  const targets = (lastS && lastS.review && lastS.review.exercises) || {};
-  if (lastS) h += reviewCard(lastS, true);
+  const plan = draft.plans[key];
+  const reviewTargets = (lastS && lastS.review && lastS.review.exercises) || {};
+  h += planCard(key, plan);
+  if (lastS && !plan) h += reviewCard(lastS, true);
 
-  day.ex.forEach(ex => {
+  const order = plan && plan.order && plan.order.length ? plan.order : [];
+  const rank = id => { const i = order.indexOf(id); return i < 0 ? order.length + day.ex.findIndex(e => e.id === id) : i; };
+  [...day.ex].sort((a, b) => rank(a.id) - rank(b.id)).forEach(ex => {
+    const pt = plan && plan.exercises[ex.id];
+    const target = pt && pt.sets.length
+      ? `<div class="ex-target"><b>Objectif</b>${esc(fmtSets(pt.sets))}${pt.cue ? `<span>${esc(pt.cue)}</span>` : ""}${pt.reason ? `<span class="why">${esc(pt.reason)}</span>` : ""}</div>`
+      : !plan && reviewTargets[ex.id]
+      ? `<div class="ex-target"><b>Objectif</b>${esc(reviewTargets[ex.id].target)}${reviewTargets[ex.id].comment ? `<span>${esc(reviewTargets[ex.id].comment)}</span>` : ""}</div>`
+      : "";
     const prev = lastSets(ex.id);
     const n = (draft.sets[ex.id] || []).length || ex.s;
     let rows = "";
@@ -889,7 +945,7 @@ function viewDay(key) {
         <div class="ex-name">${esc(ex.n)}</div>
         <div class="ex-sub">${ex.s} × ${ex.r}${ex.prio ? " · <em>priorité</em>" : ""}</div>
         ${ex.note ? `<div class="ex-note">${esc(ex.note)}</div>` : ""}
-        ${targets[ex.id] ? `<div class="ex-target"><b>Objectif</b>${esc(targets[ex.id].target)}${targets[ex.id].comment ? `<span>${esc(targets[ex.id].comment)}</span>` : ""}</div>` : ""}
+        ${target}
         <a class="ex-video" href="${videoHref}" target="_blank" rel="noopener">${ICONS.play}<span>Voir la technique</span></a>
         ${ex.sub && ex.sub.length ? `<div class="sub-row"><span class="sub-label">Si indispo</span>${ex.sub.map(s => `<span class="sub-chip">${esc(s)}</span>`).join("")}</div>` : ""}
       </div>
@@ -912,6 +968,21 @@ function viewDay(key) {
 
   h += bar();
   return h;
+}
+
+function planCard(key, plan) {
+  const busy = planning === key;
+  const btn = `<button class="ghostbtn" data-plan="${key}" ${planning ? "disabled" : ""}>${busy ? "Préparation…" : plan ? "Refaire le plan" : "Préparer la séance"}</button>`;
+  if (!plan) return `<div class="card review"><div class="k">Plan du jour</div>
+    <p>Claude fixe tes objectifs exacts, série par série, à partir de tes dernières séances.</p>${btn}</div>`;
+  const today = new Date(plan.date).toDateString() === new Date().toDateString();
+  return `<div class="card review">
+    <div class="k">Focus du jour${today ? "" : " · plan du " + fmtD(plan.date)}</div>
+    <p>${esc(plan.focus)}</p>
+    ${plan.missing.length ? `<ul class="plan-list ask">${plan.missing.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
+    ${plan.reminders.length ? `<ul class="plan-list">${plan.reminders.map(m => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
+    ${btn}
+  </div>`;
 }
 
 function reviewCard(s, compact) {
@@ -1145,6 +1216,7 @@ function viewData() {
 }
 
 function render() {
+  saveDraft();
   $("#wk").textContent = "Semaine " + week();
   $("#goalw").textContent = CYCLE.weightGoal.toFixed(1) + " kg";
   nav();
@@ -1189,7 +1261,11 @@ async function sendChatMessage() {
     const r = await fetch("/api/chat", {
       method: "POST",
       headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({
+        message: text,
+        names: Object.fromEntries(allEx().map(e => [e.id, e.n])),
+        days: { today: dayRange(0), yesterday: dayRange(-1) }
+      })
     });
     if (r.status === 401) { clearToken(); chat.loading = false; renderUnlock(); return; }
     const j = await r.json();
@@ -1328,10 +1404,12 @@ document.addEventListener("click", async e => {
     b.dataset.v = q ?? "";
     b.textContent = q == null ? "·" : Q_SYM[q];
     b.setAttribute("aria-label", `Forme technique série ${idx+1} : ${q == null ? "non notée" : q}`);
+    saveDraft();
     return;
   }
 
   if (b.dataset.review) { await reviewLastSession(b.dataset.review); return; }
+  if (b.dataset.plan) { await requestPlan(b.dataset.plan); return; }
 
   if (b.dataset.fillprev) {
     const id = b.dataset.fillprev, idx = +b.dataset.i;
@@ -1446,12 +1524,13 @@ document.addEventListener("change", async e => {
 });
 
 document.addEventListener("input", e => {
-  if (e.target.id === "note") { draft.note = e.target.value; return; }
+  if (e.target.id === "note") { draft.note = e.target.value; saveDraft(); return; }
   const i = e.target.closest("input[data-ex]"); if (!i) return;
   const { ex, i: idx, f } = i.dataset;
   draft.sets[ex] = draft.sets[ex] || [];
   draft.sets[ex][idx] = draft.sets[ex][idx] || {};
   draft.sets[ex][idx][f] = i.value;
+  saveDraft();
   const go = document.querySelector("[data-save]"); if (go) go.disabled = false;
 });
 
@@ -1476,9 +1555,10 @@ async function saveSession() {
   const today = new Date().toDateString();
   const dupIdx = state.sessions.findIndex(s => s.type === tab && new Date(s.date).toDateString() === today);
   const dup = state.sessions[dupIdx];
+  const ids = PROGRAM[tab].ex.map(e => e.id);
   const ex = {}; let pr = 0;
-  Object.entries(draft.sets).forEach(([id, sets]) => {
-    const clean = sets.filter(s => s && (s.kg || s.reps))
+  Object.entries(draft.sets).filter(([id]) => ids.includes(id)).forEach(([id, sets]) => {
+    const clean = sets.filter(s => s && num(s.reps) > 0)
                       .map(s => s.q != null ? { kg: num(s.kg) || 0, reps: num(s.reps) || 0, q: s.q }
                                             : { kg: num(s.kg) || 0, reps: num(s.reps) || 0 });
     if (!clean.length) return;
@@ -1492,10 +1572,14 @@ async function saveSession() {
     date: new Date().toISOString(), type: tab, ex,
     back: draft.back, note: draft.note.trim()
   };
+  if (draft.plans[tab]) session.plan = draft.plans[tab];
   if (dup) { state.sessions[dupIdx] = session; state.deleted.push(dup.date); }
   else state.sessions.push(session);
   const ok = await persist();
-  draft = { sets: {}, back: 0, note: "" };
+  ids.forEach(id => delete draft.sets[id]);
+  delete draft.plans[tab];
+  draft.back = 0; draft.note = "";
+  saveDraft();
   const msg = dup ? "Séance enregistrée · remplace celle d'aujourd'hui" : "Séance enregistrée";
   toast(!ok ? PENDING_MSG : pr ? `${msg} · ${pr} record${pr>1?"s":""}` : msg);
   render();
@@ -1504,8 +1588,8 @@ async function saveSession() {
 async function reviewLastSession(dateStr) {
   const s = state.sessions.find(x => x.date === dateStr);
   if (!s || !PROGRAM[s.type] || reviewing) return;
-  const history = state.sessions.filter(x => x.type === s.type && x.date < s.date).slice(-3)
-    .map(({ date, ex, back, note }) => ({ date, ex, back, note }));
+  const history = state.sessions.filter(x => x.type === s.type && x.date < s.date).slice(-3).map(sessionForClaude);
+  const { daysSinceLast, reprise } = repriseInfo(s.date);
   reviewing = s.date;
   render();
   try {
@@ -1513,8 +1597,9 @@ async function reviewLastSession(dateStr) {
       method: "POST",
       headers: { Authorization: "Bearer " + getToken(), "Content-Type": "application/json" },
       body: JSON.stringify({
-        session: { date: s.date, ex: s.ex, back: s.back, note: s.note },
-        history, program: PROGRAM[s.type], week: week(), rampWeeks: CYCLE.rampWeeks
+        session: { date: s.date, type: s.type, ex: s.ex, back: s.back, note: s.note },
+        history, program: PROGRAM[s.type], daysSinceLast, reprise,
+        seenLoads: seenLoads(PROGRAM[s.type].ex.map(e => e.id))
       })
     });
     if (r.status === 401) { clearToken(); reviewing = null; renderUnlock(); return; }
@@ -1529,6 +1614,34 @@ async function reviewLastSession(dateStr) {
     toast("Connexion impossible");
   }
   reviewing = null;
+  render();
+}
+
+async function requestPlan(key) {
+  if (planning) return;
+  const program = PROGRAM[key];
+  const { daysSinceLast, reprise } = repriseInfo();
+  planning = key;
+  render();
+  try {
+    const r = await fetch("/api/plan", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        program, daysSinceLast, reprise,
+        history: state.sessions.filter(s => s.type === key).slice(-3).map(sessionForClaude),
+        seenLoads: seenLoads(program.ex.map(e => e.id)),
+        today: dayRange(0), bodyweight: latestBodyweight()
+      })
+    });
+    if (r.status === 401) { clearToken(); planning = null; renderUnlock(); return; }
+    const j = await r.json();
+    if (r.ok) { draft.plans[key] = j; toast("Plan prêt"); }
+    else toast("Plan impossible");
+  } catch (e) {
+    toast("Connexion impossible");
+  }
+  planning = null;
   render();
 }
 

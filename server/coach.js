@@ -1,47 +1,46 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { getClient } from "./claude.js";
+import { PROFILE, METHOD, NUTRITION_TARGETS } from "./profile.js";
+import { describeSession, describeMealTotals, fmtDate } from "./format.js";
 
-let client = null;
-function getClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY manquant côté serveur.");
-  }
-  if (!client) client = new Anthropic();
-  return client;
-}
+const SYSTEM_BASE = `Tu es le coach intégré dans "Carnet", une appli personnelle de suivi de musculation (programme Push/Pull/Legs). Réponds en français, de façon directe et concise (2 à 5 phrases sauf si on te demande plus de détail). Appuie-toi sur le contexte d'entraînement ci-dessous pour donner des conseils concrets et personnalisés : charges, progression, récupération, organisation des séances, nutrition. Tu n'es pas un professionnel de santé — pour toute douleur, blessure ou question médicale, renvoie vers un médecin ou kinésithérapeute plutôt que de diagnostiquer toi-même.
 
-const fmtDate = iso => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+${PROFILE}
 
-const SYSTEM_BASE = `Tu es le coach intégré dans "Carnet", une appli personnelle de suivi de musculation (programme Push/Pull/Legs). Réponds en français, de façon directe et concise (2 à 5 phrases sauf si on te demande plus de détail). Appuie-toi sur le contexte d'entraînement ci-dessous pour donner des conseils concrets et personnalisés : charges, progression, récupération, organisation des séances, nutrition générale. Tu n'es pas un professionnel de santé — pour toute douleur, blessure ou question médicale, renvoie vers un médecin ou kinésithérapeute plutôt que de diagnostiquer toi-même.`;
+${METHOD}`;
 
-export function buildContext(state) {
+// names : { id: nom } pour tous les exercices ; meals : { today, yesterday } totaux ou null
+export function buildContext(state, { names = {}, meals = {} } = {}) {
   const sessions = state.sessions || [];
   const weights = state.weights || [];
   const measures = state.measures || [];
   const lines = [];
 
-  if (weights.length) {
-    const last = weights[weights.length - 1];
-    lines.push(`Dernier poids noté : ${last.kg} kg (${fmtDate(last.date)}).`);
-  }
-
-  const recent = [...sessions].slice(-5).reverse();
-  if (recent.length) {
-    lines.push("Dernières séances (plus récente en premier) :");
-    recent.forEach(s => {
-      const vol = Object.values(s.ex).flat().reduce((a, x) => a + x.kg * x.reps, 0);
-      const backNote = s.back === 2 ? " [douleur dos signalée]" : s.back === 1 ? " [gêne légère au dos]" : "";
-      const noteTxt = s.note ? ` — note perso : "${s.note}"` : "";
-      lines.push(`- ${fmtDate(s.date)} · ${s.type} · volume ${Math.round(vol)} kg${backNote}${noteTxt}`);
-    });
+  const cut14 = Date.now() - 14 * 864e5, cut7 = Date.now() - 7 * 864e5;
+  const recentW = weights.filter(w => new Date(w.date) >= cut14);
+  if (recentW.length) {
+    lines.push(`Poids des 14 derniers jours : ${recentW.map(w => `${fmtDate(w.date)} ${w.kg} kg`).join(", ")}.`);
+    const w7 = weights.filter(w => new Date(w.date) >= cut7);
+    if (w7.length) lines.push(`Moyenne 7 jours : ${(w7.reduce((a, w) => a + w.kg, 0) / w7.length).toFixed(1)} kg.`);
   } else {
-    lines.push("Aucune séance enregistrée pour l'instant.");
+    lines.push("Aucune pesée sur les 14 derniers jours.");
   }
 
   if (measures.length) {
     const m = measures[measures.length - 1];
-    if (m.epaules && m.taille) lines.push(`Ratio épaules/taille actuel : ${(m.epaules / m.taille).toFixed(3)}.`);
+    const parts = Object.entries(m).filter(([k]) => k !== "date").map(([k, v]) => `${k} ${v} cm`).join(", ");
+    lines.push(`Dernières mesures (${fmtDate(m.date)}) : ${parts}${m.epaules && m.taille ? ` — ratio épaules/taille ${(m.epaules / m.taille).toFixed(3)}` : ""}.`);
   }
 
+  const recent = sessions.slice(-5).reverse();
+  if (recent.length) {
+    lines.push("Dernières séances (plus récente en premier) :");
+    recent.forEach(s => lines.push(describeSession(s, names)));
+  } else {
+    lines.push("Aucune séance enregistrée pour l'instant.");
+  }
+
+  lines.push(describeMealTotals("Repas aujourd'hui", meals.today, NUTRITION_TARGETS));
+  lines.push(describeMealTotals("Repas hier", meals.yesterday, NUTRITION_TARGETS));
   return lines.join("\n");
 }
 
@@ -49,7 +48,8 @@ export async function askCoach(history, context) {
   const system = `${SYSTEM_BASE}\n\nContexte d'entraînement actuel :\n${context}`;
   const msg = await getClient().messages.create({
     model: "claude-haiku-5-5",
-    max_tokens: 600,
+    max_tokens: 1000,
+    output_config: { effort: "low" },
     system,
     messages: history,
   });
