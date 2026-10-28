@@ -159,6 +159,39 @@
   .meal-items { font-size: 13px; font-weight: 600; }
   .meal-macros { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 4px; }
   .meal-note { font-size: 11.5px; color: var(--faint); margin-top: 5px; font-style: italic; }
+  .meal-form textarea {
+    width: 100%; min-height: 84px; padding: 11px 12px; resize: vertical;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-size: 15px; line-height: 1.45; outline: none;
+  }
+  .meal-form textarea:focus { border-color: var(--accent); }
+  .meal-form .meal-preview { margin-top: 10px; max-height: 180px; }
+  .mrows { margin-top: 10px; border-top: 1px solid var(--border); }
+  .mrow {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px;
+    padding: 7px 0; border-bottom: 1px solid var(--border); text-align: left; font-size: 12.5px;
+  }
+  .mrow .nm { flex: 1; min-width: 0; }
+  .mrow .g { font-family: var(--mono); font-weight: 600; }
+  .mrow .src { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: 6px; }
+  .mrow .src.pese { color: var(--good); background: var(--good-soft); }
+  .mrow .src.est { color: var(--gold); background: var(--gold-soft); }
+  .mrow .kc { font-family: var(--mono); color: var(--dim); width: 64px; text-align: right; flex: none; }
+  .mrow input { width: 80px; padding: 8px; background: var(--surface3); border: 1px solid var(--accent); border-radius: 8px; color: var(--text); font-size: 16px; }
+  .mtot { font-family: var(--mono); font-size: 11.5px; margin-top: 9px; }
+  .favs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+  .fav { display: inline-flex; align-items: center; border: 1px solid var(--border); background: var(--surface); border-radius: 999px; overflow: hidden; }
+  .fav button { padding: 11px 13px; font-size: 12.5px; font-weight: 600; min-height: 44px; }
+  .fav button + button { padding: 11px 12px; color: var(--faint); border-left: 1px solid var(--border); font-weight: 400; }
+  .nbar { margin-bottom: 14px; }
+  .nrow { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+  .nrow .k { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .nrow .track { height: 8px; border-radius: 99px; background: var(--surface3); overflow: hidden; }
+  .nrow .fill { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+  .nrow .fill.done { background: var(--good); }
+  .nrow .v { font-family: var(--mono); font-size: 11.5px; min-width: 96px; text-align: right; }
+  .nrow .v b { color: var(--good); font-weight: 700; }
+  .sheet input { width: 100%; padding: 12px; margin: 0 0 16px; background: var(--surface3); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; }
 
   /* ---- alerte reprise ---- */
   .phase {
@@ -480,7 +513,8 @@ let state = { sessions: [], weights: [], measures: [], deleted: [] };
 let tab   = "home";
 let analyticsEx = null;
 let chat  = { messages: [], loaded: false, loading: false };
-let meals = { items: [], loaded: false, uploading: false, pending: null, pendingPreview: null };
+let meals = { items: [], favorites: [], loaded: false, uploading: false, photo: null, photoPreview: null, text: "", editing: null };
+const NUTRITION = { kcal: 3000, protein_g: 150, carbs_g: 375 }; // cibles du jour (profil)
 const DRAFT_KEY = "carnet.draft";
 const emptyDraft = () => ({ sets: {}, back: 0, note: "", plans: {} });
 let draft = emptyDraft();
@@ -629,7 +663,9 @@ function renderUnlock() {
 
 async function boot() {
   loadDraft();
-  if (await load()) render();
+  if (!await load()) return;
+  render();
+  loadMeals().then(softRender);
 }
 
 // Ne remplace jamais des données plus récentes par des plus anciennes : si la
@@ -840,6 +876,30 @@ function confirmDialog({ title = "Confirmer", message, confirmLabel = "Confirmer
   });
 }
 
+function promptDialog({ title, message = "", placeholder = "", confirmLabel = "OK" }) {
+  return new Promise(resolve => {
+    const overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">
+      <h3>${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ""}
+      <input placeholder="${esc(placeholder)}" aria-label="${esc(title)}">
+      <div class="sheet-actions">
+        <button class="sheet-btn ghost" data-a="cancel">Annuler</button>
+        <button class="sheet-btn primary" data-a="ok">${esc(confirmLabel)}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector("input"); input.focus();
+    const close = v => { overlay.remove(); resolve(v); };
+    input.addEventListener("keydown", e => { if (e.key === "Enter") close(input.value.trim() || null); });
+    overlay.addEventListener("click", e => {
+      if (e.target === overlay) { close(null); return; }
+      const b = e.target.closest("button"); if (!b) return;
+      close(b.dataset.a === "ok" ? input.value.trim() || null : null);
+    });
+  });
+}
+
 /* ---- rendu ---- */
 function nav() {
   const t = [["home","Accueil"],["push","Push"],["pull","Pull"],["legs","Legs"],["coach","Coach"],["meals","Repas"],["journal","Journal"],["suivi","Suivi"],["data","Données"]];
@@ -868,6 +928,8 @@ function viewHome() {
 
   h += `<div class="stat"><span class="k">Séances cette semaine</span><span class="v hi">${sessionsThisWeek()}</span></div>`;
   h += `<div class="stat"><span class="k">Total séances</span><span class="v">${state.sessions.length}</span></div>`;
+
+  h += `<h2 class="sec">Nutrition</h2>` + nutritionBar();
 
   h += `<h2 class="sec">Poids</h2>`;
   const w2 = state.weights;
@@ -1032,55 +1094,100 @@ function viewCoach() {
     <p class="hint">Le coach voit tes dernières séances et ton poids, mais ce n'est pas un professionnel de santé — pour toute douleur ou blessure, consulte un médecin ou kinésithérapeute.</p>`;
 }
 
-function viewMeals() {
-  let h = "";
+// Totaux d'un jour (0 = aujourd'hui, -1 = hier) à partir des repas chargés.
+function mealDayTotals(offset = 0) {
+  const [a, b] = dayRange(offset);
+  const day = meals.items.filter(m => m.date >= a && m.date < b);
+  const sum = k => day.reduce((t, m) => t + (m[k] || 0), 0);
+  return { count: day.length, kcal: sum("calories"), protein_g: sum("protein_g"), carbs_g: sum("carbs_g"), fat_g: sum("fat_g") };
+}
 
-  if (meals.pendingPreview) {
-    h += `<div class="card">
-      <img class="meal-preview" src="${meals.pendingPreview}" alt="Aperçu du repas">
-      <div class="entry" style="margin-top:12px">
-        <input id="mealNote" placeholder="Précision (optionnel)" aria-label="Précision sur le repas">
-      </div>
-      <div class="meal-actions">
-        <button class="ghostbtn" data-cancel-meal ${meals.uploading ? "disabled" : ""}>Annuler</button>
-        <button class="go-full" data-analyze-meal ${meals.uploading ? "disabled" : ""}>${meals.uploading ? "Analyse…" : "Analyser"}</button>
+// Barre du jour : kcal / protéines / glucides vs cibles. Protéines « assez » dès la cible.
+function nutritionBar() {
+  const t = mealDayTotals(0);
+  const row = (label, v, goal, unit, enough) => {
+    const pct = Math.min(100, Math.round(v / goal * 100));
+    const done = v >= goal;
+    return `<div class="nrow"><span class="k">${label}</span>
+      <span class="track"><span class="fill${done ? " done" : ""}" style="width:${pct}%"></span></span>
+      <span class="v">${done && enough ? `<b>✓ assez</b> · ${v} ${unit}` : `${v.toLocaleString("fr-FR")} / ${goal.toLocaleString("fr-FR")} ${unit}`}</span></div>`;
+  };
+  return `<div class="card nbar">
+    <div class="ex-sub" style="margin:0 0 11px">Aujourd'hui · ${t.count} repas</div>
+    ${row("Kcal", t.kcal, NUTRITION.kcal, "kcal")}
+    ${row("Protéines", t.protein_g, NUTRITION.protein_g, "g", true)}
+    ${row("Glucides", t.carbs_g, NUTRITION.carbs_g, "g")}
+  </div>`;
+}
+
+function mealCard(m) {
+  let body;
+  if (m.rows && m.rows.length) {
+    const rows = m.rows.map((r, i) => {
+      const key = m.id + ":" + i;
+      if (meals.editing === key) return `<div class="mrow"><span class="nm">${esc(r.name)}</span>
+        <input id="gramsIn" inputmode="decimal" value="${r.grams}" aria-label="Grammes pour ${esc(r.name)}"><span class="g">g</span>
+        <button class="sheet-btn primary" style="flex:none;padding:10px 14px" data-savegrams="${key}">OK</button></div>`;
+      const pese = r.grams_source === "pesé";
+      return `<button class="mrow" data-editrow="${key}" aria-label="Corriger les grammes de ${esc(r.name)}">
+        <span class="nm">${esc(r.name)}</span><span class="g">${r.grams} g</span>
+        <span class="src ${pese ? "pese" : "est"}">${pese ? "pesé" : "estimé"}</span>
+        <span class="kc">${r.kcal} kcal</span></button>`;
+    }).join("");
+    body = `<div class="mrows">${rows}</div>
+      <div class="mtot">Total ${m.calories} kcal · P ${m.protein_g} g · G ${m.carbs_g} g · L ${m.fat_g} g</div>
+      ${m.missing && m.missing.length ? `<ul class="plan-list ask">${m.missing.map(q => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}
+      ${m.analysisNote ? `<div class="meal-note">${esc(m.analysisNote)}</div>` : ""}
+      ${m.hasImage ? `<img class="meal-thumb" style="margin-top:10px" data-mealimg="${m.id}" alt="">` : ""}
+      <button class="ghostbtn" style="margin:10px 0 0" data-favmeal="${m.id}">☆ Enregistrer en favori</button>`;
+  } else {
+    // repas enregistrés avant la v3 : photo + estimation globale
+    body = `<div class="meal-body">
+      ${m.hasImage ? `<img class="meal-thumb" data-mealimg="${m.id}" alt="">` : ""}
+      <div class="meal-info">
+        <div class="meal-items">${esc((m.items || []).join(", ") || "Repas")}</div>
+        ${m.calories != null ? `<div class="meal-macros">${m.calories} kcal · P ${m.protein_g ?? "?"} · G ${m.carbs_g ?? "?"} · L ${m.fat_g ?? "?"}</div>` : `<div class="meal-macros">Estimation indisponible</div>`}
+        ${m.analysisNote ? `<div class="meal-note">${esc(m.analysisNote)}</div>` : ""}
       </div>
     </div>`;
-  } else {
-    h += `<button class="ghostbtn camera-btn" data-take-photo>${ICONS.camera}<span>Prendre une photo</span></button>
-      <input type="file" id="mealFile" accept="image/*" capture="environment" hidden>`;
   }
+  return `<article class="card meal-card">
+    <div class="date-row">
+      <div class="date">${fmtD(m.date)} · ${new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div>
+      <button class="del" data-delmeal="${m.id}" aria-label="Supprimer ce repas">${ICONS.trash}</button>
+    </div>
+    ${m.description ? `<div class="said" style="margin-top:4px">${esc(m.description)}</div>` : ""}
+    ${body}
+  </article>`;
+}
 
-  const today = new Date().toDateString();
-  const todays = meals.items.filter(m => new Date(m.date).toDateString() === today);
-  if (todays.length) {
-    const cal = todays.reduce((a, m) => a + (m.calories || 0), 0);
-    const prot = todays.reduce((a, m) => a + (m.protein_g || 0), 0);
-    h += `<div class="stat"><span class="k">Calories aujourd'hui</span><span class="v hi">${cal.toLocaleString("fr-FR")} kcal</span></div>`;
-    h += `<div class="stat"><span class="k">Protéines aujourd'hui</span><span class="v">${prot} g</span></div>`;
-  }
+function viewMeals() {
+  let h = nutritionBar();
+  const busy = meals.uploading;
+  h += `<div class="card meal-form">
+    <textarea id="mealText" placeholder="Ce que tu as mangé, en grammes pesés — ex. riz basmati 100 g cru, poulet 150 g cru, sauce chili 1 c. à soupe" aria-label="Ce que tu as mangé, en grammes pesés" ${busy ? "disabled" : ""}>${esc(meals.text)}</textarea>
+    ${meals.photoPreview ? `<img class="meal-preview" src="${meals.photoPreview}" alt="Photo du repas">` : ""}
+    <div class="meal-actions">
+      ${meals.photoPreview
+        ? `<button class="ghostbtn" data-cancel-meal ${busy ? "disabled" : ""}>Retirer la photo</button>`
+        : `<button class="ghostbtn camera-btn" data-take-photo ${busy ? "disabled" : ""}>${ICONS.camera}<span>Photo (optionnel)</span></button>`}
+      <button class="go-full" data-analyze-meal ${busy ? "disabled" : ""}>${busy ? "Calcul…" : "Calculer"}</button>
+    </div>
+    <input type="file" id="mealFile" accept="image/*" capture="environment" hidden>
+  </div>`;
+
+  h += `<h2 class="sec">Favoris</h2>`;
+  h += meals.favorites.length
+    ? `<div class="favs">${meals.favorites.map(f => `<span class="fav">
+        <button data-logfav="${f.id}" aria-label="Noter ${esc(f.name)}">+ ${esc(f.name)}</button>
+        <button data-delfav="${f.id}" aria-label="Supprimer le favori ${esc(f.name)}">✕</button></span>`).join("")}</div>`
+    : `<p class="hint">Note un repas pesé, puis « ☆ Enregistrer en favori » sur sa carte : tu pourras le noter en un tap (Shaker du matin, Collation 16h, Bol skyr du soir…).</p>`;
 
   h += `<h2 class="sec">Historique</h2>`;
-  if (!meals.items.length) {
-    h += `<div class="empty">${ICONS.meals}<br>Prends une photo de ton repas pour avoir une estimation des calories et macros.</div>`;
-  } else {
-    h += meals.items.map(m => `<article class="card meal-card">
-      <div class="date-row">
-        <div class="date">${fmtD(m.date)}</div>
-        <button class="del" data-delmeal="${m.id}" aria-label="Supprimer ce repas">${ICONS.trash}</button>
-      </div>
-      <div class="meal-body">
-        <img class="meal-thumb" src="data:image/jpeg;base64,${m.image}" alt="">
-        <div class="meal-info">
-          <div class="meal-items">${esc((m.items || []).join(", ") || "Repas")}</div>
-          ${m.calories != null ? `<div class="meal-macros">${m.calories} kcal · P ${m.protein_g ?? "?"} · G ${m.carbs_g ?? "?"} · L ${m.fat_g ?? "?"}</div>` : `<div class="meal-macros">Estimation indisponible</div>`}
-          ${m.analysisNote ? `<div class="meal-note">${esc(m.analysisNote)}</div>` : ""}
-        </div>
-      </div>
-    </article>`).join("");
-  }
-
-  h += `<p class="hint" style="margin-top:14px">Estimation automatique par IA à partir de la photo — approximative, pas un substitut à un suivi nutritionnel précis.</p>`;
+  h += meals.items.length
+    ? meals.items.map(mealCard).join("")
+    : `<div class="empty">${ICONS.meals}<br>Écris ce que tu as mangé, en grammes pesés. La photo est optionnelle.</div>`;
+  h += `<p class="hint" style="margin-top:14px">Les quantités pesées sont prises telles quelles. Les aliments sans poids sont estimés et signalés — corrige les grammes en touchant la ligne.</p>`;
   return h;
 }
 
@@ -1227,6 +1334,7 @@ function render() {
     tab === "journal" ? viewJournal() :
     tab === "suivi"   ? viewSuivi()   :
     tab === "data"    ? viewData()    : viewDay(tab);
+  hydrateImages();
   if (tab === "coach") scrollChatToBottom();
 }
 
@@ -1306,45 +1414,97 @@ function resizeImageFile(file, maxDim = 900, quality = 0.72) {
 
 async function loadMeals() {
   meals.loaded = true;
-  const t = getToken();
-  if (!t) return;
+  if (!getToken()) return;
   try {
-    const r = await fetch("/api/meals", { headers: { Authorization: "Bearer " + t } });
+    const [r, f] = await Promise.all([
+      fetchT("/api/meals", { headers: authHeaders() }),
+      fetchT("/api/favorites", { headers: authHeaders() }),
+    ]);
     if (r.status === 401) { clearToken(); renderUnlock(); return; }
-    if (r.ok) { const j = await r.json(); meals.items = j.meals || []; }
-  } catch (e) {}
+    if (r.ok) meals.items = (await r.json()).meals || [];
+    if (f.ok) meals.favorites = (await f.json()).favorites || [];
+  } catch (e) { meals.loaded = false; }
 }
 
-async function analyzeMealPhoto() {
-  if (!meals.pending || meals.uploading) return;
-  meals.uploading = true;
+async function postMeal(body) {
+  const r = await fetchT("/api/meals", { method: "POST", headers: authHeaders(true), body: JSON.stringify(body) }, 120000);
+  if (r.status === 401) { clearToken(); renderUnlock(); return null; }
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error);
+  meals.items.unshift({
+    id: j.id, hasImage: Boolean(body.image), description: body.text || null,
+    items: j.rows.map(x => x.name), rows: j.rows, missing: j.missing, analysisNote: j.note,
+    calories: j.totals.kcal, protein_g: j.totals.protein_g, carbs_g: j.totals.carbs_g, fat_g: j.totals.fat_g,
+    date: new Date().toISOString()
+  });
+  if (body.image) mealImgCache.set(j.id, meals.photoPreview);
+  return j;
+}
+
+async function analyzeMeal() {
+  const text = ($("#mealText") ? $("#mealText").value : meals.text).trim();
+  if (meals.uploading) return;
+  if (!text && !meals.photo) { toast("Écris ce que tu as mangé"); return; }
+  meals.text = text; meals.uploading = true;
   render();
-  const noteEl = $("#mealNote");
-  const note = (noteEl && noteEl.value || "").trim();
-  const t = getToken();
   try {
-    const r = await fetch("/api/meals", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
-      body: JSON.stringify({ image: meals.pending, note })
-    });
-    if (r.status === 401) { clearToken(); meals.uploading = false; renderUnlock(); return; }
-    const j = await r.json();
-    if (r.ok) {
-      meals.items.unshift({
-        id: j.id, image: meals.pending, note, items: j.items, calories: j.calories,
-        protein_g: j.protein_g, carbs_g: j.carbs_g, fat_g: j.fat_g,
-        confidence: j.confidence, analysisNote: j.note, date: new Date().toISOString()
-      });
-      toast("Repas analysé");
-    } else {
-      toast("Analyse impossible");
+    const j = await postMeal({ text, image: meals.photo || "" });
+    if (j) {
+      meals.text = ""; meals.photo = null; meals.photoPreview = null;
+      toast(j.missing.length ? "Repas noté · quantités à préciser" : "Repas noté");
     }
   } catch (e) {
-    toast("Connexion impossible");
+    toast("Calcul impossible");
   }
-  meals.pending = null; meals.pendingPreview = null; meals.uploading = false;
+  meals.uploading = false;
   render();
+}
+
+// Corriger les grammes d'une ligne : on recalcule depuis les valeurs pour 100 g.
+async function saveGrams(key) {
+  const [id, idx] = key.split(":");
+  const m = meals.items.find(x => String(x.id) === id);
+  const g = num($("#gramsIn").value);
+  meals.editing = null;
+  if (!m || g === null || g <= 0) { render(); return; }
+  const r = m.rows[+idx];
+  const p = r.per100 || {};
+  Object.assign(r, { grams: Math.round(g), grams_source: "pesé" },
+    ...["kcal", "protein_g", "carbs_g", "fat_g"].map(k => ({ [k]: Math.round((p[k] || 0) * g / 100) })));
+  const sum = k => m.rows.reduce((t, x) => t + x[k], 0);
+  Object.assign(m, { calories: sum("kcal"), protein_g: sum("protein_g"), carbs_g: sum("carbs_g"), fat_g: sum("fat_g") });
+  // la quantité est maintenant pesée : la question sur cet aliment n'a plus lieu d'être
+  const word = r.name.split(/\s+/)[0].toLowerCase();
+  m.missing = (m.missing || []).filter(q => !q.toLowerCase().includes(word));
+  render();
+  try {
+    const res = await fetchT("/api/meals/" + id, { method: "PATCH", headers: authHeaders(true), body: JSON.stringify({ rows: m.rows, missing: m.missing }) });
+    toast(res.ok ? "Grammes corrigés" : "Correction non enregistrée");
+  } catch (e) { toast("Correction non enregistrée"); }
+}
+
+// Photos chargées seulement quand la carte devient visible.
+const mealImgCache = new Map();
+const imgObserver = "IntersectionObserver" in window ? new IntersectionObserver(entries => {
+  entries.forEach(async en => {
+    if (!en.isIntersecting) return;
+    const img = en.target; imgObserver.unobserve(img);
+    const id = img.dataset.mealimg;
+    try {
+      if (!mealImgCache.has(id)) {
+        const r = await fetchT(`/api/meals/${id}/image`, { headers: authHeaders() });
+        if (!r.ok) return;
+        mealImgCache.set(id, URL.createObjectURL(await r.blob()));
+      }
+      img.src = mealImgCache.get(id);
+    } catch (e) {}
+  });
+}, { rootMargin: "200px" }) : null;
+function hydrateImages() {
+  document.querySelectorAll("img[data-mealimg]").forEach(img => {
+    const c = mealImgCache.get(img.dataset.mealimg) || mealImgCache.get(Number(img.dataset.mealimg));
+    if (c) img.src = c; else if (imgObserver) imgObserver.observe(img);
+  });
 }
 
 /* ---- interactions ---- */
@@ -1366,9 +1526,39 @@ document.addEventListener("click", async e => {
     render(); window.scrollTo(0,0); return;
   }
   if ("sendChat" in b.dataset) { await sendChatMessage(); return; }
-  if ("takePhoto" in b.dataset) { $("#mealFile").click(); return; }
-  if ("cancelMeal" in b.dataset) { meals.pending = null; meals.pendingPreview = null; render(); return; }
-  if ("analyzeMeal" in b.dataset) { await analyzeMealPhoto(); return; }
+  if ("takePhoto" in b.dataset) { meals.text = $("#mealText").value; $("#mealFile").click(); return; }
+  if ("cancelMeal" in b.dataset) { meals.text = $("#mealText").value; meals.photo = null; meals.photoPreview = null; render(); return; }
+  if ("analyzeMeal" in b.dataset) { await analyzeMeal(); return; }
+  if (b.dataset.editrow) { meals.editing = b.dataset.editrow; render(); const g = $("#gramsIn"); if (g) { g.focus(); g.select(); } return; }
+  if (b.dataset.savegrams) { await saveGrams(b.dataset.savegrams); return; }
+  if (b.dataset.favmeal) {
+    const m = meals.items.find(x => String(x.id) === b.dataset.favmeal);
+    const name = await promptDialog({ title: "Nom du favori", placeholder: "ex. Collation 16h", confirmLabel: "Enregistrer" });
+    if (!m || !name) return;
+    try {
+      const r = await fetchT("/api/favorites", { method: "POST", headers: authHeaders(true), body: JSON.stringify({ name, description: m.description, rows: m.rows }) });
+      if (!r.ok) throw 0;
+      meals.favorites.push({ id: (await r.json()).id, name, description: m.description, rows: m.rows });
+      meals.favorites.sort((a, c) => a.name.localeCompare(c.name));
+      toast("Favori enregistré");
+    } catch (e) { toast("Favori non enregistré"); }
+    render(); return;
+  }
+  if (b.dataset.logfav) {
+    const f = meals.favorites.find(x => String(x.id) === b.dataset.logfav);
+    if (!f) return;
+    try { await postMeal({ text: f.description || f.name, rows: f.rows }); toast(f.name + " noté"); }
+    catch (e) { toast("Repas non enregistré"); }
+    render(); return;
+  }
+  if (b.dataset.delfav) {
+    const f = meals.favorites.find(x => String(x.id) === b.dataset.delfav);
+    const ok = await confirmDialog({ title: "Supprimer ce favori ?", message: `« ${f.name} » ne sera plus proposé. Les repas déjà notés restent.`, confirmLabel: "Supprimer", danger: true });
+    if (!ok) return;
+    try { await fetchT("/api/favorites/" + f.id, { method: "DELETE", headers: authHeaders() }); } catch (e) {}
+    meals.favorites = meals.favorites.filter(x => x !== f);
+    render(); return;
+  }
   if (b.dataset.delmeal) {
     const id = b.dataset.delmeal;
     const ok = await confirmDialog({ title: "Supprimer ce repas ?", message: "L'entrée et son estimation seront définitivement supprimées.", confirmLabel: "Supprimer", danger: true });
@@ -1491,8 +1681,8 @@ document.addEventListener("change", async e => {
     if (!e.target.files.length) return;
     try {
       const { dataUrl, base64 } = await resizeImageFile(e.target.files[0]);
-      meals.pending = base64;
-      meals.pendingPreview = dataUrl;
+      meals.photo = base64;
+      meals.photoPreview = dataUrl;
       render();
     } catch (err) { toast("Image illisible"); }
     e.target.value = "";
@@ -1525,6 +1715,7 @@ document.addEventListener("change", async e => {
 
 document.addEventListener("input", e => {
   if (e.target.id === "note") { draft.note = e.target.value; saveDraft(); return; }
+  if (e.target.id === "mealText") { meals.text = e.target.value; return; }
   const i = e.target.closest("input[data-ex]"); if (!i) return;
   const { ex, i: idx, f } = i.dataset;
   draft.sets[ex] = draft.sets[ex] || [];
@@ -1650,6 +1841,7 @@ window.addEventListener("beforeunload", e => { if (dirty()) e.preventDefault(); 
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.id === "tokenIn") $("[data-unlock]")?.click();
   if (e.key === "Enter" && e.target.id === "chatIn") $("[data-send-chat]")?.click();
+  if (e.key === "Enter" && e.target.id === "gramsIn") $("[data-savegrams]")?.click();
 });
 
 if (getToken()) boot(); else renderUnlock();

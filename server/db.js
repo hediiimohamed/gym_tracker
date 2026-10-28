@@ -121,26 +121,58 @@ await db.execute(`
   )
 `);
 
+// Repas v3 : description pesée, une ligne par aliment (avec valeurs pour 100 g
+// pour recalculer quand on corrige les grammes), questions sur ce qui manque.
+// calories / protein_g / carbs_g / fat_g restent les totaux du repas.
+const mealCols = (await db.execute("PRAGMA table_info(meals)")).rows.map(c => c.name);
+for (const [col, type] of [["description", "TEXT"], ["rows", "TEXT"], ["missing", "TEXT"]]) {
+  if (!mealCols.includes(col)) await db.execute(`ALTER TABLE meals ADD COLUMN ${col} ${type}`);
+}
+
+await db.execute(`
+  CREATE TABLE IF NOT EXISTS meal_favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    rows TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
 export async function addMeal(m) {
   const r = await db.execute({
-    sql: `INSERT INTO meals (image_data, note, items, calories, protein_g, carbs_g, fat_g, confidence, analysis_note, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [m.image_data, m.note || null, JSON.stringify(m.items || []), m.calories, m.protein_g, m.carbs_g, m.fat_g, m.confidence, m.analysis_note || "", new Date().toISOString()],
+    sql: `INSERT INTO meals (image_data, note, items, calories, protein_g, carbs_g, fat_g, confidence, analysis_note, created_at, description, rows, missing)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [m.image_data || "", m.note || null, JSON.stringify(m.items || []), m.calories, m.protein_g, m.carbs_g, m.fat_g,
+           m.confidence || null, m.analysis_note || "", new Date().toISOString(),
+           m.description || null, JSON.stringify(m.rows || []), JSON.stringify(m.missing || [])],
   });
   return Number(r.lastInsertRowid);
 }
 
+export async function updateMealRows(id, rows, totals, missing) {
+  await db.execute({
+    sql: "UPDATE meals SET rows = ?, missing = COALESCE(?, missing), calories = ?, protein_g = ?, carbs_g = ?, fat_g = ? WHERE id = ?",
+    args: [JSON.stringify(rows), missing ? JSON.stringify(missing) : null, totals.kcal, totals.protein_g, totals.carbs_g, totals.fat_g, id],
+  });
+}
+
+// La liste ne renvoie plus les photos (lourdes) : elles se chargent une par une.
 export async function listMeals(limit = 30) {
   const r = await db.execute({
-    sql: `SELECT id, image_data, note, items, calories, protein_g, carbs_g, fat_g, confidence, analysis_note, created_at
+    sql: `SELECT id, length(image_data) > 0 AS has_image, note, items, calories, protein_g, carbs_g, fat_g, confidence,
+                 analysis_note, created_at, description, rows, missing
           FROM meals ORDER BY id DESC LIMIT ?`,
     args: [limit],
   });
   return r.rows.map(row => ({
-    id: row.id,
-    image: row.image_data,
+    id: Number(row.id),
+    hasImage: Boolean(row.has_image),
     note: row.note,
+    description: row.description,
     items: JSON.parse(row.items || "[]"),
+    rows: JSON.parse(row.rows || "[]"),
+    missing: JSON.parse(row.missing || "[]"),
     calories: row.calories,
     protein_g: row.protein_g,
     carbs_g: row.carbs_g,
@@ -149,6 +181,28 @@ export async function listMeals(limit = 30) {
     analysisNote: row.analysis_note,
     date: row.created_at,
   }));
+}
+
+export async function getMealImage(id) {
+  const r = await db.execute({ sql: "SELECT image_data FROM meals WHERE id = ?", args: [id] });
+  return r.rows.length && r.rows[0].image_data ? r.rows[0].image_data : null;
+}
+
+export async function listFavorites() {
+  const r = await db.execute("SELECT id, name, description, rows FROM meal_favorites ORDER BY name");
+  return r.rows.map(row => ({ id: Number(row.id), name: row.name, description: row.description, rows: JSON.parse(row.rows) }));
+}
+
+export async function addFavorite(f) {
+  const r = await db.execute({
+    sql: "INSERT INTO meal_favorites (name, description, rows, created_at) VALUES (?, ?, ?, ?)",
+    args: [f.name, f.description || null, JSON.stringify(f.rows), new Date().toISOString()],
+  });
+  return Number(r.lastInsertRowid);
+}
+
+export async function deleteFavorite(id) {
+  await db.execute({ sql: "DELETE FROM meal_favorites WHERE id = ?", args: [id] });
 }
 
 export async function deleteMeal(id) {

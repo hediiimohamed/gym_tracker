@@ -2,9 +2,9 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal, mealTotals } from "./db.js";
+import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal, mealTotals, updateMealRows, getMealImage, listFavorites, addFavorite, deleteFavorite } from "./db.js";
 import { buildContext, askCoach } from "./coach.js";
-import { analyzeMeal } from "./food.js";
+import { analyzeMeal, totalsOf } from "./food.js";
 import { reviewSession } from "./review.js";
 import { planSession } from "./plan.js";
 
@@ -135,30 +135,74 @@ app.get("/api/meals", requireAuth, async (req, res) => {
   }
 });
 
+// Trois façons d'ajouter un repas : description pesée (+ photo optionnelle)
+// analysée par Claude, ou lignes déjà calculées (favori) enregistrées telles quelles.
 app.post("/api/meals", requireAuth, async (req, res) => {
   try {
-    const image = (req.body && req.body.image) || "";
-    const note = ((req.body && req.body.note) || "").trim();
-    if (!image) return res.status(400).json({ error: "image required" });
-
-    const analysis = await analyzeMeal(image, note);
+    const { image = "", text = "", rows: given } = req.body || {};
+    const description = String(text).trim();
+    let result;
+    if (Array.isArray(given) && given.length) {
+      const rows = given.map(r => ({ ...r, kcal: Number(r.kcal) || 0, protein_g: Number(r.protein_g) || 0, carbs_g: Number(r.carbs_g) || 0, fat_g: Number(r.fat_g) || 0 }));
+      result = { rows, totals: totalsOf(rows), missing: [], note: "" };
+    } else {
+      if (!image && !description) return res.status(400).json({ error: "text or image required" });
+      result = await analyzeMeal({ text: description, image });
+    }
     const id = await addMeal({
-      image_data: image,
-      note,
-      items: analysis.items,
-      calories: analysis.calories,
-      protein_g: analysis.protein_g,
-      carbs_g: analysis.carbs_g,
-      fat_g: analysis.fat_g,
-      confidence: analysis.confidence,
-      analysis_note: analysis.note,
+      image_data: image, description: description || null,
+      items: result.rows.map(r => r.name), rows: result.rows, missing: result.missing,
+      calories: result.totals.kcal, protein_g: result.totals.protein_g,
+      carbs_g: result.totals.carbs_g, fat_g: result.totals.fat_g, analysis_note: result.note,
     });
-
-    res.json({ id, ...analysis });
+    res.json({ id, ...result });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message || "analyse impossible" });
   }
+});
+
+// Correction des grammes : on reçoit les lignes recalculées, on refait les totaux ici.
+app.patch("/api/meals/:id", requireAuth, async (req, res) => {
+  try {
+    const { rows, missing } = req.body || {};
+    if (!Array.isArray(rows)) return res.status(400).json({ error: "rows required" });
+    const totals = totalsOf(rows);
+    await updateMealRows(req.params.id, rows, totals, Array.isArray(missing) ? missing : null);
+    res.json({ ok: true, totals });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "failed to update meal" });
+  }
+});
+
+app.get("/api/meals/:id/image", requireAuth, async (req, res) => {
+  try {
+    const b64 = await getMealImage(req.params.id);
+    if (!b64) return res.status(404).end();
+    res.set("Cache-Control", "private, max-age=86400").type("image/jpeg").send(Buffer.from(b64, "base64"));
+  } catch (e) {
+    console.error(e);
+    res.status(500).end();
+  }
+});
+
+app.get("/api/favorites", requireAuth, async (req, res) => {
+  try { res.json({ favorites: await listFavorites() }); }
+  catch (e) { console.error(e); res.status(500).json({ error: "failed to load favorites" }); }
+});
+
+app.post("/api/favorites", requireAuth, async (req, res) => {
+  try {
+    const { name, description, rows } = req.body || {};
+    if (!name || !Array.isArray(rows) || !rows.length) return res.status(400).json({ error: "name and rows required" });
+    res.json({ id: await addFavorite({ name: String(name).trim(), description, rows }) });
+  } catch (e) { console.error(e); res.status(500).json({ error: "failed to save favorite" }); }
+});
+
+app.delete("/api/favorites/:id", requireAuth, async (req, res) => {
+  try { await deleteFavorite(req.params.id); res.json({ ok: true }); }
+  catch (e) { console.error(e); res.status(500).json({ error: "failed to delete favorite" }); }
 });
 
 app.delete("/api/meals/:id", requireAuth, async (req, res) => {
