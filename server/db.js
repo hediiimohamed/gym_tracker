@@ -28,17 +28,62 @@ await db.execute(`
   )
 `);
 
-export async function getState() {
-  const r = await db.execute("SELECT data FROM app_state WHERE id = 1");
-  return r.rows.length ? r.rows[0].data : null;
+// Versioning : chaque écriture réussie incrémente `version`. Un client doit
+// envoyer la version sur laquelle il s'est basé ; si elle a bougé entre-temps
+// (autre appareil), l'écriture est refusée et le client fusionne.
+const cols = await db.execute("PRAGMA table_info(app_state)");
+if (!cols.rows.some(c => c.name === "version")) {
+  await db.execute("ALTER TABLE app_state ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
 }
 
-export async function setState(json) {
-  await db.execute({
-    sql: `INSERT INTO app_state (id, data, updated_at) VALUES (1, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-    args: [json, new Date().toISOString()],
-  });
+await db.execute(`
+  CREATE TABLE IF NOT EXISTS state_backups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
+const KEEP_BACKUPS = 5;
+
+export async function getState() {
+  const r = await db.execute("SELECT data, version FROM app_state WHERE id = 1");
+  return r.rows.length ? { data: r.rows[0].data, version: Number(r.rows[0].version) } : { data: null, version: 0 };
+}
+
+// Retourne { ok: true, version } ou { ok: false, data, version } si baseVersion est périmée.
+export async function setState(json, baseVersion) {
+  const tx = await db.transaction("write");
+  try {
+    const cur = await tx.execute("SELECT data, version FROM app_state WHERE id = 1");
+    const curVersion = cur.rows.length ? Number(cur.rows[0].version) : 0;
+    if (baseVersion !== curVersion) {
+      await tx.rollback();
+      return { ok: false, data: cur.rows.length ? cur.rows[0].data : null, version: curVersion };
+    }
+    const now = new Date().toISOString();
+    if (cur.rows.length) {
+      await tx.execute({
+        sql: "INSERT INTO state_backups (data, version, created_at) VALUES (?, ?, ?)",
+        args: [cur.rows[0].data, curVersion, now],
+      });
+      await tx.execute({
+        sql: `DELETE FROM state_backups WHERE id NOT IN
+              (SELECT id FROM state_backups ORDER BY id DESC LIMIT ${KEEP_BACKUPS})`,
+        args: [],
+      });
+    }
+    await tx.execute({
+      sql: `INSERT INTO app_state (id, data, updated_at, version) VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, version = excluded.version`,
+      args: [json, now, curVersion + 1],
+    });
+    await tx.commit();
+    return { ok: true, version: curVersion + 1 };
+  } finally {
+    tx.close();
+  }
 }
 
 export async function listChatMessages(limit = 40) {

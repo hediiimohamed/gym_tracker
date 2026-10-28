@@ -27,8 +27,8 @@ function requireAuth(req, res, next) {
 
 app.get("/api/state", requireAuth, async (req, res) => {
   try {
-    const data = await getState();
-    res.json(data ? JSON.parse(data) : { sessions: [], weights: [], measures: [] });
+    const { data, version } = await getState();
+    res.json({ data: data ? JSON.parse(data) : { sessions: [], weights: [], measures: [], deleted: [] }, version });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "failed to read state" });
@@ -37,8 +37,15 @@ app.get("/api/state", requireAuth, async (req, res) => {
 
 app.put("/api/state", requireAuth, async (req, res) => {
   try {
-    await setState(JSON.stringify(req.body || {}));
-    res.json({ ok: true });
+    const { data, baseVersion } = req.body || {};
+    // Un ancien client (sans baseVersion) écraserait le serveur avec une copie
+    // potentiellement périmée : on refuse, il doit recharger la page.
+    if (!Number.isInteger(baseVersion) || !data || !Array.isArray(data.sessions)) {
+      return res.status(400).json({ error: "data and integer baseVersion required — reload the app" });
+    }
+    const r = await setState(JSON.stringify(data), baseVersion);
+    if (!r.ok) return res.status(409).json({ data: r.data ? JSON.parse(r.data) : null, version: r.version });
+    res.json({ ok: true, version: r.version });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "failed to save state" });
@@ -63,7 +70,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     await addChatMessage("user", userText);
     const history = (await listChatMessages()).map(m => ({ role: m.role, content: m.content }));
 
-    const rawState = await getState();
+    const { data: rawState } = await getState();
     const state = rawState ? JSON.parse(rawState) : { sessions: [], weights: [], measures: [] };
     const context = buildContext(state);
 

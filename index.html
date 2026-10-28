@@ -63,6 +63,14 @@
   }
   header .meta b { color: var(--accent); font-weight: 600; }
 
+  #syncbar {
+    position: sticky; top: calc(61px + env(safe-area-inset-top)); z-index: 19;
+    margin: 10px 18px 0; padding: 9px 12px; border-radius: 10px;
+    background: var(--gold-soft); border: 1px solid var(--gold); color: var(--gold);
+    font-size: 12px; font-weight: 600; line-height: 1.4;
+  }
+  #syncbar[hidden] { display: none; }
+
   /* ---- navigation ---- */
   nav {
     display: flex; gap: 6px; padding: 12px 18px 0;
@@ -383,6 +391,7 @@
     <div class="meta">PPL · <b id="wk"></b> · Cible <span id="goalw"></span></div>
   </div>
 </header>
+<div id="syncbar" role="status" hidden>⟳ Séance gardée sur ce téléphone, pas encore synchronisée</div>
 <nav id="nav"></nav>
 <main id="view"></main>
 
@@ -464,7 +473,7 @@ const ICONS = {
   camera:  `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h1.8l.9-1.5h5.6l.9 1.5h1.8A1.5 1.5 0 0 1 17 7.5v7A1.5 1.5 0 0 1 15.5 16h-11A1.5 1.5 0 0 1 3 14.5v-7Z"/><circle cx="10" cy="11" r="3"/></svg>`,
 };
 
-let state = { sessions: [], weights: [], measures: [] };
+let state = { sessions: [], weights: [], measures: [], deleted: [] };
 let tab   = "home";
 let analyticsEx = null;
 let chat  = { messages: [], loaded: false, loading: false };
@@ -479,39 +488,123 @@ const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch (
 const setToken = t => { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} };
 const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
 
-/* ---- stockage : serveur (Turso) en priorité, repli local si hors-ligne ---- */
-const store = {
-  async get() {
-    const t = getToken();
-    if (t) {
-      try {
-        const r = await fetch("/api/state", { headers: { Authorization: "Bearer " + t } });
-        if (r.status === 401) { clearToken(); renderUnlock(); return null; }
-        if (r.ok) return JSON.stringify(await r.json());
-      } catch (e) {}
-    }
-    try { const v = localStorage.getItem(KEY); if (v !== null) return v; } catch (e) {}
-    try { const r = await window.storage.get(KEY); return r && r.value ? r.value : null; } catch (e) { return null; }
-  },
-  async set(v) {
-    let remoteOk = false, localOk = false;
-    const t = getToken();
-    if (t) {
-      try {
-        const r = await fetch("/api/state", {
-          method: "PUT",
-          headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
-          body: v
-        });
-        if (r.status === 401) { clearToken(); renderUnlock(); }
-        remoteOk = r.ok;
-      } catch (e) {}
-    }
-    try { localStorage.setItem(KEY, v); localOk = true; } catch (e) {}
-    if (!remoteOk && !localOk) { try { await window.storage.set(KEY, v); return true; } catch (e) {} }
-    return remoteOk || localOk;
+/* ---- synchronisation : serveur versionné + copie locale + file d'attente ----
+   Le serveur garde un numéro de version. Chaque envoi dit sur quelle version il
+   se base ; si un autre appareil a écrit entre-temps (409), on fusionne et on
+   renvoie. Tant qu'un envoi n'a pas réussi, la copie locale est marquée
+   « en attente » et on réessaie (chargement, retour du réseau, toutes les 30 s). */
+const PENDING_KEY = "carnet.pending";
+const VERSION_KEY = "carnet.version";
+const STATE_TIMEOUT = 20000;
+
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
+
+const normalize = d => ({ ...(d || {}),
+  sessions: (d && d.sessions) || [], weights: (d && d.weights) || [],
+  measures: (d && d.measures) || [], deleted: (d && d.deleted) || [] });
+
+// Union par date (ISO, unique). Sur un doublon, `mine` gagne, mais un bilan
+// Claude présent d'un seul côté est gardé. Une date dans `deleted` ne revient jamais.
+function mergeStates(theirs, mine) {
+  theirs = normalize(theirs); mine = normalize(mine);
+  const deleted = [...new Set([...theirs.deleted, ...mine.deleted])];
+  const gone = new Set(deleted);
+  const union = (a, b, pick = (old, cur) => cur) => {
+    const m = new Map(a.map(x => [x.date, x]));
+    b.forEach(x => m.set(x.date, pick(m.get(x.date), x)));
+    return [...m.values()].filter(x => !gone.has(x.date))
+      .sort((x, y) => new Date(x.date) - new Date(y.date));
+  };
+  return { ...theirs, ...mine,
+    sessions: union(theirs.sessions, mine.sessions,
+      (old, cur) => old && old.review && !cur.review ? { ...cur, review: old.review } : cur),
+    weights:  union(theirs.weights, mine.weights),
+    measures: union(theirs.measures, mine.measures),
+    deleted };
+}
+
+async function fetchT(url, opts = {}, ms = STATE_TIMEOUT) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctl.signal }); }
+  finally { clearTimeout(timer); }
+}
+const authHeaders = json => ({ Authorization: "Bearer " + getToken(), ...(json ? { "Content-Type": "application/json" } : {}) });
+
+const sync = { busy: null, offline: false, rev: 0 };
+const currentVersion = () => Number(lsGet(VERSION_KEY) || 0);
+const setVersion = v => lsSet(VERSION_KEY, String(v));
+const isPending = () => lsGet(PENDING_KEY) === "1";
+function setPending(on) {
+  if (on) lsSet(PENDING_KEY, "1"); else lsDel(PENDING_KEY);
+  const el = $("#syncbar"); if (el) el.hidden = !on;
+}
+const saveLocal = () => lsSet(KEY, JSON.stringify(state));
+function readLocal() { try { const v = lsGet(KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+
+class Unauthorized extends Error {}
+async function fetchServerState() {
+  const r = await fetchT("/api/state", { headers: authHeaders() });
+  if (r.status === 401) throw new Unauthorized();
+  if (!r.ok) throw new Error("http " + r.status);
+  return r.json();
+}
+
+// Envoie l'état courant. Vrai seulement si le serveur a confirmé la dernière version locale.
+function pushState() {
+  if (!sync.busy) sync.busy = (async () => {
+    let conflicts = 0;
+    try {
+      for (let round = 0; round < 6; round++) {
+        const rev = sync.rev;
+        const r = await fetchT("/api/state", { method: "PUT", headers: authHeaders(true),
+          body: JSON.stringify({ data: state, baseVersion: currentVersion() }) });
+        if (r.status === 401) { clearToken(); renderUnlock(); return false; }
+        if (r.status === 409) {
+          if (++conflicts > 2) return false;
+          const j = await r.json();
+          state = mergeStates(j.data, state);
+          setVersion(j.version); saveLocal(); sync.merged = true;
+          continue;
+        }
+        if (!r.ok) return false;
+        setVersion((await r.json()).version);
+        sync.offline = false;
+        if (rev === sync.rev) { setPending(false); return true; }
+      }
+      return false;
+    } catch (e) { return false; }
+    finally { sync.busy = null; }
+  })();
+  return sync.busy;
+}
+
+// Rendu sans casser une saisie en cours.
+function softRender() {
+  const a = document.activeElement;
+  if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
+  render();
+}
+
+async function syncTick() {
+  if (!getToken() || sync.busy) return;
+  if (isPending()) {
+    const ok = await pushState();
+    if (ok && sync.merged) { sync.merged = false; softRender(); }
+  } else if (sync.offline) {
+    try {
+      const srv = await fetchServerState();
+      setVersion(srv.version);
+      state = normalize(srv.data); saveLocal();
+      sync.offline = false; softRender();
+    } catch (e) {}
   }
-};
+}
+setInterval(syncTick, 30000);
+window.addEventListener("online", syncTick);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncTick(); });
 
 function renderUnlock() {
   $("#wk").textContent = "Semaine " + week();
@@ -529,20 +622,40 @@ function renderUnlock() {
 }
 
 async function boot() {
-  await load();
-  render();
+  if (await load()) render();
 }
 
+// Ne remplace jamais des données plus récentes par des plus anciennes : si la
+// copie locale a des changements en attente, elle est fusionnée avec le serveur.
 async function load() {
-  const raw = await store.get();
-  if (raw) { try { Object.assign(state, JSON.parse(raw)); } catch (e) {} }
-  state.sessions = state.sessions || [];
-  state.weights  = state.weights  || [];
-  state.measures = state.measures || [];
+  const local = readLocal();
+  setPending(isPending());
+  $("#view").innerHTML = `<div class="empty">Connexion au serveur…<br>(le serveur gratuit se réveille, ça peut prendre 30 s)</div>`;
+  try {
+    const srv = await fetchServerState();
+    setVersion(srv.version);
+    state = isPending() && local ? mergeStates(srv.data, local) : normalize(srv.data);
+    saveLocal();
+    sync.offline = false;
+    if (isPending()) pushState();
+  } catch (e) {
+    if (e instanceof Unauthorized) { clearToken(); renderUnlock(); return false; }
+    state = normalize(local);
+    sync.offline = true;
+    toast("Serveur injoignable — données du téléphone");
+  }
+  return true;
 }
+
+// Écrit en local tout de suite, puis envoie. Vrai si le serveur a confirmé.
 async function persist() {
-  if (!await store.set(JSON.stringify(state))) toast("Enregistrement impossible");
+  sync.rev++;
+  saveLocal();
+  setPending(true);
+  return pushState();
 }
+const PENDING_MSG = "Enregistrée sur le téléphone — synchronisation en attente";
+const synced = (ok, msg) => toast(ok ? msg : PENDING_MSG);
 
 /* ---- calculs ---- */
 const allEx = () => Object.values(PROGRAM).flatMap(d => d.ex);
@@ -1240,7 +1353,7 @@ document.addEventListener("click", async e => {
     const v = num($("#wIn").value);
     if (v === null || v < 30 || v > 200) { toast("Entre un poids valide"); return; }
     state.weights.push({ date: new Date().toISOString(), kg: v });
-    await persist(); toast("Poids noté"); render(); return;
+    synced(await persist(), "Poids noté"); render(); return;
   }
 
   if ("addm" in b.dataset) {
@@ -1252,7 +1365,7 @@ document.addEventListener("click", async e => {
     });
     if (!any) { toast("Aucune mesure saisie"); return; }
     state.measures.push(rec);
-    await persist(); toast("Mesures enregistrées"); render(); return;
+    synced(await persist(), "Mesures enregistrées"); render(); return;
   }
 
   if ("export" in b.dataset) {
@@ -1276,7 +1389,8 @@ document.addEventListener("click", async e => {
     });
     if (!ok) return;
     state.sessions = state.sessions.filter(s => s.date !== dateStr);
-    await persist(); toast("Séance supprimée"); render(); return;
+    state.deleted.push(dateStr);
+    synced(await persist(), "Séance supprimée"); render(); return;
   }
 
   if ("clearall" in b.dataset) {
@@ -1287,8 +1401,9 @@ document.addEventListener("click", async e => {
       danger: true
     });
     if (!ok) return;
-    state = { sessions: [], weights: [], measures: [] };
-    await persist(); toast("Données effacées"); render(); return;
+    const all = [...state.sessions, ...state.weights, ...state.measures].map(x => x.date);
+    state = normalize({ deleted: [...new Set([...state.deleted, ...all])] });
+    synced(await persist(), "Données effacées"); render(); return;
   }
 });
 
@@ -1319,8 +1434,13 @@ document.addEventListener("change", async e => {
       });
       if (!ok) { e.target.value = ""; return; }
     }
-    state = { sessions: d.sessions||[], weights: d.weights||[], measures: d.measures||[] };
-    await persist(); toast("Données importées"); render();
+    // ce qui n'est pas dans le fichier est marqué supprimé, sinon une fusion le ferait revenir
+    const imp = normalize(d);
+    const kept = new Set([...imp.sessions, ...imp.weights, ...imp.measures].map(x => x.date));
+    const dropped = [...state.sessions, ...state.weights, ...state.measures].map(x => x.date).filter(x => !kept.has(x));
+    imp.deleted = [...new Set([...state.deleted, ...imp.deleted, ...dropped])].filter(x => !kept.has(x));
+    state = imp;
+    synced(await persist(), "Données importées"); render();
   } catch (err) { toast("Fichier illisible"); }
   e.target.value = "";
 });
@@ -1372,11 +1492,12 @@ async function saveSession() {
     date: new Date().toISOString(), type: tab, ex,
     back: draft.back, note: draft.note.trim()
   };
-  if (dup) state.sessions[dupIdx] = session; else state.sessions.push(session);
-  await persist();
+  if (dup) { state.sessions[dupIdx] = session; state.deleted.push(dup.date); }
+  else state.sessions.push(session);
+  const ok = await persist();
   draft = { sets: {}, back: 0, note: "" };
   const msg = dup ? "Séance enregistrée · remplace celle d'aujourd'hui" : "Séance enregistrée";
-  toast(pr ? `${msg} · ${pr} record${pr>1?"s":""}` : msg);
+  toast(!ok ? PENDING_MSG : pr ? `${msg} · ${pr} record${pr>1?"s":""}` : msg);
   render();
 }
 
@@ -1400,8 +1521,7 @@ async function reviewLastSession(dateStr) {
     const j = await r.json();
     if (r.ok) {
       s.review = { summary: j.summary, exercises: j.exercises, date: new Date().toISOString() };
-      await persist();
-      toast("Bilan prêt");
+      synced(await persist(), "Bilan prêt");
     } else {
       toast("Analyse impossible");
     }
