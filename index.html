@@ -119,6 +119,16 @@
   .spark circle { fill: var(--accent); }
   .spark-foot { display: flex; justify-content: space-between; margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
   .spark-foot .hi { color: var(--accent); }
+  .wchart { width: 100%; height: 96px; display: block; overflow: visible; }
+  .wchart .day { stroke: var(--faint); stroke-width: 8px; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .wchart .avg { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+  .wchart .goal { stroke: var(--dim); stroke-width: 1px; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+  .nextcard .splits { display: flex; gap: 8px; margin-top: 10px; }
+  .nextcard .splits span { flex: 1; text-align: center; padding: 8px 4px; border-radius: 9px; background: var(--surface2); font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .nextcard .splits b { display: block; color: var(--text); font-size: 13px; margin-top: 2px; }
+  .nextcard .splits span[data-next="1"] { outline: 1px solid var(--accent); }
+  .protocol { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--dim); }
+  .todo { color: var(--gold); font-weight: 600; }
 
   .barchart { width: 100%; height: 64px; display: block; }
   .chart-legend { display: flex; gap: 14px; margin-top: 11px; font-family: var(--mono); font-size: 10px;
@@ -466,6 +476,7 @@ const CYCLE = {
   start:      "2026-08-25",   // début du cycle
   weightGoal: 70.0,           // kg visés en fin de cycle (prise sèche ≈ 0,25-0,5 kg/semaine)
   breakDays:  10,             // jours sans séance à partir desquels on compte une reprise
+  photoCheck: "2026-11-16",   // contrôle photo, puis toutes les 4 semaines
 };
 
 // iso:1 = isolation (repos 60 s), core:1 = gainage (reps seules, sans charge),
@@ -781,6 +792,25 @@ function sparkline(values) {
     <circle cx="${last[0]}" cy="${last[1]}" r="1.8"></circle>
   </svg>`;
 }
+// Poids : moyenne glissante 7 jours en ligne principale, pesées du jour en points pâles.
+function weightChart(weights, goal) {
+  const pts = weights.map(w => ({ t: +new Date(w.date), kg: w.kg }));
+  const avg7 = pts.map(p => {
+    const win = pts.filter(q => q.t > p.t - 7 * 864e5 && q.t <= p.t);
+    return { t: p.t, kg: win.reduce((a, q) => a + q.kg, 0) / win.length };
+  });
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t, span = (t1 - t0) || 1;
+  const vals = pts.map(p => p.kg).concat(goal != null ? [goal] : []);
+  const min = Math.min(...vals) - 0.3, max = Math.max(...vals) + 0.3;
+  const X = t => ((t - t0) / span * 300).toFixed(1), Y = v => (88 - (v - min) / (max - min) * 80).toFixed(1);
+  const dots = pts.map(p => `<path class="day" d="M${X(p.t)} ${Y(p.kg)}h0"><title>${fmtD(p.t)} : ${p.kg.toFixed(1)} kg</title></path>`).join("");
+  const line = avg7.map(p => `${X(p.t)},${Y(p.kg)}`).join(" ");
+  const goalLine = goal != null ? `<line class="goal" x1="0" x2="300" y1="${Y(goal)}" y2="${Y(goal)}"><title>Cible ${goal.toFixed(1)} kg</title></line>` : "";
+  return `<svg class="wchart" viewBox="0 0 300 96" preserveAspectRatio="none" role="img"
+      aria-label="Poids : moyenne 7 jours ${avg7[avg7.length - 1].kg.toFixed(1)} kg, ${pts.length} pesées">
+    ${goalLine}${dots}<polyline class="avg" points="${line}"></polyline></svg>`;
+}
+
 function progressChart(values) {
   const n = values.length;
   const min = Math.min(...values), max = Math.max(...values);
@@ -940,6 +970,14 @@ function nav() {
     `<button data-tab="${k}" aria-current="${tab===k}">${ICONS[k]}<span>${l}</span></button>`).join("");
 }
 
+// Rotation Push → Pull → Legs, à partir de la dernière séance enregistrée.
+function nextSplit() {
+  const order = ["push", "pull", "legs"];
+  const latest = state.sessions.reduce((a, x) => !a || x.date > a.date ? x : a, null);
+  const last = latest && latest.type;
+  return order.includes(last) ? order[(order.indexOf(last) + 1) % 3] : "push";
+}
+
 function viewHome() {
   const w = week();
   const { reprise } = repriseInfo();
@@ -952,12 +990,19 @@ function viewHome() {
       : `Phase normale. Progresse charge ou répétition, séance après séance.`}</p>
   </div>`;
 
-  h += `<h2 class="sec">Séances</h2><div class="quickgrid">` +
-    days.map(([k, l]) => {
+  const next = nextSplit();
+  h += `<div class="card review nextcard">
+    <div class="k">Prochaine séance</div>
+    <p class="big">${PROGRAM[next].label}</p>
+    <div class="splits">${days.map(([k, l]) => {
       const last = lastOfType(k);
-      const sub = last ? `il y a ${daysAgo(last.date)} j` : "jamais";
-      return `<button class="quickcard" data-tab="${k}">${ICONS[k]}<span class="qc-label">${l}</span><span class="qc-sub">${sub}</span></button>`;
-    }).join("") + `</div>`;
+      return `<span data-next="${k === next ? 1 : 0}">${l}<b>${last ? (daysBetween(last.date, new Date()) === 0 ? "aujourd'hui" : `il y a ${daysBetween(last.date, new Date())} j`) : "jamais"}</b></span>`;
+    }).join("")}</div>
+    <button class="ghostbtn" data-prepnext="${next}" ${planning ? "disabled" : ""}>Préparer la séance ${PROGRAM[next].label}</button>
+  </div>`;
+
+  h += `<h2 class="sec">Séances</h2><div class="quickgrid">` +
+    days.map(([k, l]) => `<button class="quickcard" data-tab="${k}">${ICONS[k]}<span class="qc-label">${l}</span></button>`).join("") + `</div>`;
 
   h += `<div class="stat"><span class="k">Séances cette semaine</span><span class="v hi">${sessionsThisWeek()}</span></div>`;
   h += `<div class="stat"><span class="k">Total séances</span><span class="v">${state.sessions.length}</span></div>`;
@@ -967,9 +1012,9 @@ function viewHome() {
   h += `<h2 class="sec">Poids</h2>`;
   const w2 = state.weights;
   if (w2.length >= 2) {
-    const recent = w2.slice(-20);
-    h += `<div class="card">${sparkline(recent.map(x => x.kg))}
-      <div class="spark-foot"><span>${recent[0].kg.toFixed(1)} kg</span><span class="hi">${recent[recent.length-1].kg.toFixed(1)} kg</span></div>
+    const recent = w2.slice(-20), a7 = avg(w2, 7);
+    h += `<div class="card">${weightChart(recent, null)}
+      <div class="spark-foot"><span>moyenne 7 j</span><span class="hi">${a7 ? a7.toFixed(1) + " kg" : "—"}</span></div>
     </div>`;
   } else {
     h += `<p class="hint">Note ton poids à jeun dans l'onglet Suivi pour voir la tendance apparaître ici.</p>`;
@@ -1359,19 +1404,23 @@ function viewSuivi() {
   const w = state.weights;
   if (w.length) {
     if (w.length >= 2) {
-      const recent = w.slice(-20);
-      h += `<div class="card">${sparkline(recent.map(x => x.kg))}
-        <div class="spark-foot"><span>${recent[0].kg.toFixed(1)} kg</span><span class="hi">${recent[recent.length-1].kg.toFixed(1)} kg</span></div>
+      const recent = w.filter(x => new Date(x.date) >= Date.now() - 42 * 864e5);
+      const shown = recent.length >= 2 ? recent : w.slice(-10);
+      h += `<div class="card">
+        <div class="ex-sub" style="margin:0 0 10px">Moyenne 7 jours — points : pesées du jour</div>
+        ${weightChart(shown, CYCLE.weightGoal)}
+        <div class="spark-foot"><span>${fmtD(shown[0].date)}</span><span>pointillé : cible ${CYCLE.weightGoal.toFixed(1)} kg</span></div>
       </div>`;
     }
     const cur = w[w.length-1].kg, a7 = avg(w,7), a28 = avg(w,28);
-    h += `<div class="stat"><span class="k">Dernier</span><span class="v">${cur.toFixed(1)} kg</span></div>`;
     if (a7)  h += `<div class="stat"><span class="k">Moyenne 7 j</span><span class="v hi">${a7.toFixed(1)} kg</span></div>`;
+    h += `<div class="stat"><span class="k">Dernière pesée</span><span class="v">${cur.toFixed(1)} kg</span></div>`;
     if (a28 && a7) {
       const d = a7 - a28;
       h += `<div class="stat"><span class="k">Tendance</span><span class="v">${d>=0?"+":""}${d.toFixed(2)} kg<small>vs 28 j</small></span></div>`;
     }
     h += `<div class="stat"><span class="k">Cible cycle</span><span class="v">${CYCLE.weightGoal.toFixed(1)} kg</span></div>`;
+    h += `<p class="hint">Seules les pesées du matin, à jeun, sont comparables entre elles. On lit la moyenne 7 jours, jamais le chiffre du jour.</p>`;
   } else {
     h += `<p class="hint">Chaque matin, à jeun, après être passé aux toilettes, avant de boire. C'est la moyenne sur 7 jours qu'on lit, jamais le chiffre du jour.</p>`;
   }
@@ -1423,6 +1472,14 @@ function viewSuivi() {
   const ms = state.measures;
   if (ms.length) {
     const last = ms[ms.length-1], first = ms[0];
+    const ratios = ms.filter(m => m.epaules && m.taille).map(m => ({ date: m.date, r: m.epaules / m.taille }));
+    if (ratios.length >= 2) {
+      h += `<div class="card">
+        <div class="ex-sub" style="margin:0 0 10px">Ratio épaules / taille dans le temps</div>
+        ${sparkline(ratios.map(x => x.r))}
+        <div class="spark-foot"><span>${fmtD(ratios[0].date)} · ${ratios[0].r.toFixed(3)}</span><span class="hi">${ratios[ratios.length-1].r.toFixed(3)}</span></div>
+      </div>`;
+    }
     if (last.epaules && last.taille) {
       const r = last.epaules / last.taille;
       const r0 = first.epaules && first.taille ? first.epaules / first.taille : null;
@@ -1438,13 +1495,40 @@ function viewSuivi() {
   } else {
     h += `<p class="hint">Le ratio épaules / taille est la vraie mesure de ce cycle. Le poids monte partout ; la largeur, non. Mêmes conditions chaque dimanche, à la salle, après le premier repas.</p>`;
   }
+  const lastWaist = [...ms].reverse().find(m => m.taille);
+  if (!lastWaist || daysAgo(lastWaist.date) > 14) {
+    h += `<p class="hint todo">⚠ Mesure de taille à prendre${lastWaist ? ` (dernière : ${fmtD(lastWaist.date)})` : ""}</p>`;
+  }
+
+  const next = nextPhotoCheck();
+  const inDays = daysBetween(new Date(), next);
+  h += `<h2 class="sec">Photos — toutes les 4 semaines</h2>
+    <div class="card">
+      <div class="k" style="font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)">Prochain contrôle · ${fmtD(next)}${inDays === 0 ? " · aujourd'hui" : ` · dans ${inDays} j`}</div>
+      <ol class="protocol">
+        <li>Même endroit au sol, même hauteur de téléphone.</li>
+        <li>Le matin, à jeun.</li>
+        <li>Relâché : face, profil, dos.</li>
+        <li>Puis les deux contractions.</li>
+        <li>Minuteur 10 s.</li>
+      </ol>
+      <p class="hint" style="margin:8px 0 0">Les photos restent dans ta galerie : l'appli ne les enregistre pas.</p>
+    </div>`;
   return h;
+}
+
+// Contrôle photo toutes les 4 semaines, calé sur le 16/11/2026.
+function nextPhotoCheck() {
+  const d = new Date(CYCLE.photoCheck + "T00:00:00"), today = midnight(new Date());
+  while (d - today >= 28 * 864e5) d.setDate(d.getDate() - 28);
+  while (d < today) d.setDate(d.getDate() + 28);
+  return d;
 }
 
 function viewData() {
   const n = state.sessions.length, w = state.weights.length, m = state.measures.length;
   return `<h2 class="sec">Sauvegarde</h2>
-    <p class="hint">Tes données vivent dans le navigateur de ton téléphone. Vider les données de Safari les effacerait. Exporte une fois par mois — le fichier se range dans Fichiers ou iCloud, et se réimporte ici en cas de pépin ou sur un autre appareil.</p>
+    <p class="hint">Tes données sont sur le serveur (base Turso), avec une copie sur ce téléphone et les 5 dernières versions sauvegardées côté serveur. Exporte quand même une fois par mois — le fichier se range dans Fichiers ou iCloud, et se réimporte ici en cas de pépin.</p>
     <button class="ghostbtn" data-export>Exporter — ${n} séance${n>1?"s":""}, ${w} pesée${w>1?"s":""}, ${m} mesure${m>1?"s":""}</button>
     <button class="ghostbtn" data-import>Importer un fichier</button>
     <input type="file" id="fileIn" accept="application/json,.json" hidden>
@@ -1736,6 +1820,7 @@ document.addEventListener("click", async e => {
 
   if (b.dataset.review) { await reviewLastSession(b.dataset.review); return; }
   if (b.dataset.plan) { await requestPlan(b.dataset.plan); return; }
+  if (b.dataset.prepnext) { tab = b.dataset.prepnext; window.scrollTo(0, 0); await requestPlan(tab); return; }
 
   if (b.dataset.fillprev) {
     if (longPressed) { longPressed = false; return; } // l'appui long a déjà copié l'objectif

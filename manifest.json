@@ -1,7 +1,7 @@
 {
   "name": "Carnet — Suivi de musculation",
   "short_name": "Carnet",
-  "description": "Carnet d'entraînement Push/Pull/Legs : séries, charges, poids et mesures, sans compte ni serveur.",
+  "description": "Carnet d'entraînement Push/Pull/Legs : séries, charges, forme technique, repas, poids et mesures, avec un coach Claude.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

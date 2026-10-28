@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import { getState, setState, listChatMessages, addChatMessage, clearChatMessages, addMeal, listMeals, deleteMeal, mealTotals, updateMealRows, getMealImage, listFavorites, addFavorite, deleteFavorite } from "./db.js";
 import { buildContext, askCoach } from "./coach.js";
 import { analyzeMeal, totalsOf } from "./food.js";
@@ -12,19 +13,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 
 const TOKEN = process.env.APP_TOKEN;
-if (!TOKEN) {
-  throw new Error("Missing APP_TOKEN env var. Pick any secret string and set it (see server/.env.example).");
+if (!TOKEN || TOKEN.length < 32) {
+  throw new Error("APP_TOKEN must be set and at least 32 characters long (the Render URL is public). Generate one with: openssl rand -hex 24");
 }
 
 const app = express();
+app.set("trust proxy", 1); // Render est derrière un proxy : req.ip = vraie IP du client
 app.use(express.json({ limit: "8mb" }));
 
+// Comparaison à temps constant (on compare des empreintes de même longueur).
+const digest = s => crypto.createHash("sha256").update(s).digest();
+const TOKEN_DIGEST = digest(TOKEN);
 function requireAuth(req, res, next) {
   const header = req.get("authorization") || "";
   const given = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (given !== TOKEN) return res.status(401).json({ error: "unauthorized" });
+  if (!crypto.timingSafeEqual(digest(given), TOKEN_DIGEST)) return res.status(401).json({ error: "unauthorized" });
   next();
 }
+
+// Limite de débit par IP, fenêtre glissante d'une minute. L'URL est publique et
+// chaque appel à Claude coûte : plafond plus bas pour ces routes.
+function rateLimit(max) {
+  const hits = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const recent = (hits.get(req.ip) || []).filter(t => now - t < 60000);
+    if (recent.length >= max) {
+      res.set("Retry-After", String(Math.ceil((60000 - (now - recent[0])) / 1000)));
+      return res.status(429).json({ error: "too many requests" });
+    }
+    recent.push(now);
+    hits.set(req.ip, recent);
+    if (hits.size > 1000) for (const [k, v] of hits) if (now - v[v.length - 1] > 60000) hits.delete(k);
+    next();
+  };
+}
+app.use("/api", rateLimit(60));
+const claudeLimit = rateLimit(10);
+app.post(["/api/plan", "/api/review", "/api/chat", "/api/meals"], claudeLimit);
 
 app.get("/api/state", requireAuth, async (req, res) => {
   try {
@@ -215,14 +241,10 @@ app.delete("/api/meals/:id", requireAuth, async (req, res) => {
   }
 });
 
-// Never serve the server's own source or any dotfiles (env secrets live here).
-app.use((req, res, next) => {
-  if (req.path.startsWith("/server/")) return res.status(404).end();
-  next();
-});
-
-app.use(express.static(ROOT));
-
+// Seuls les fichiers de l'appli sont publics : jamais le code serveur, la doc ou les dotfiles.
+app.use("/icons", express.static(path.join(ROOT, "icons"), { dotfiles: "deny" }));
+app.get("/manifest.json", (req, res) => res.sendFile(path.join(ROOT, "manifest.json")));
+app.use("/api", (req, res) => res.status(404).json({ error: "not found" }));
 app.get("*", (req, res) => {
   res.sendFile(path.join(ROOT, "index.html"));
 });
