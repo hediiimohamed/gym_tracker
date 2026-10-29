@@ -65,7 +65,7 @@ npm start              # serves the app + API on http://localhost:3000
 ### Deploy it for real (free)
 
 1. **Database** — create a free database at [turso.tech](https://turso.tech), then grab its URL and auth token from the "Connect" panel.
-2. **Server** — push this repo to GitHub, then create a new Web Service on [Render](https://render.com) pointing at it (the included `render.yaml` preconfigures the build/start commands — Render will just ask you to fill in the environment variables: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `APP_TOKEN` (a random secret of **at least 32 characters** — the server refuses to start otherwise; generate one with `openssl rand -hex 24`), and `ANTHROPIC_API_KEY` from [console.anthropic.com](https://console.anthropic.com) (needed for plans, reviews, the coach and meals; logging works without it).
+2. **Server** — push this repo to GitHub, then create a new Web Service on [Render](https://render.com) pointing at it (the included `render.yaml` preconfigures the build/start commands — Render will just ask you to fill in the environment variables: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `APP_TOKEN` (a long random secret, e.g. `openssl rand -hex 24`), and `ANTHROPIC_API_KEY` from [console.anthropic.com](https://console.anthropic.com) (needed for plans, reviews, the coach and meals; logging works without it).
    **Set a monthly spend limit** in the Anthropic console (Settings → Limits): the Render URL is public, and while the API is rate-limited and token-protected, a hard cap is the only guarantee on cost.
 3. Open the Render URL on your phone, enter your `APP_TOKEN` once when prompted, and "Add to Home Screen".
 

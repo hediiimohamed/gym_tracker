@@ -13,9 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 
 const TOKEN = process.env.APP_TOKEN;
-if (!TOKEN || TOKEN.length < 32) {
-  throw new Error("APP_TOKEN must be set and at least 32 characters long (the Render URL is public). Generate one with: openssl rand -hex 24");
-}
+if (!TOKEN) throw new Error("APP_TOKEN must be set (the Render URL is public).");
 
 const app = express();
 app.set("trust proxy", 1); // Render est derrière un proxy : req.ip = vraie IP du client
